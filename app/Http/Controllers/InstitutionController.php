@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\City;
 use App\Models\PesantrenClaim;
 use App\Models\Profile;
+use App\Models\Regency;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -59,25 +59,29 @@ class InstitutionController extends Controller
             'namaPesantren'    => 'required|string',
             'namaPengasuh'     => 'required|string',
             'alamatLengkap'    => 'required|string',
-            'cityId'           => 'required|uuid',
+            'regencyId'        => 'required|string|size:4',
             'kecamatan'        => 'required|string',
             'namaPengelola'    => 'required|string',
             'emailPengelola'   => 'required|email',
             'noWhatsapp'       => 'required|string|min:8',
             'dokumenBuktiUrl'  => 'nullable|string',
+            'jenisPengajuan'   => 'nullable|in:klaim,pesantren_baru',
+            'pesantrenId'      => 'nullable|uuid',
         ]);
 
-        $city = City::with('region')->find($data['cityId']);
-        if (!$city) return response()->json(['message' => 'City not found'], 404);
+        $regency = Regency::find($data['regencyId']);
+        if (!$regency) return response()->json(['message' => 'Regency not found'], 404);
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $city) {
+        $region = $regency->regions()->first();
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $regency, $region) {
             Profile::where('id', $user->id)->update([
                 'role'           => 'user',
                 'nama_pesantren' => $data['namaPesantren'],
                 'nama_pengasuh'  => $data['namaPengasuh'],
                 'alamat_singkat' => $data['alamatLengkap'],
-                'city_id'        => $city->id,
-                'region_id'      => $city->region_id,
+                'regency_id'     => $regency->id,
+                'region_id'      => $region?->id,
                 'no_wa_pendaftar'=> $data['noWhatsapp'],
                 'status_account' => 'pending',
             ]);
@@ -85,30 +89,31 @@ class InstitutionController extends Controller
             $existing = PesantrenClaim::where('user_id', $user->id)->first();
 
             $claimData = [
-                'pesantren_name'   => $data['namaPesantren'],
-                'status'           => 'pending',
-                'jenis_pengajuan'  => 'pesantren_baru',
-                'region_id'        => $city->region_id,
-                'kecamatan'        => $data['kecamatan'],
-                'nama_pengelola'   => $data['namaPengelola'],
-                'email_pengelola'  => $data['emailPengelola'],
-                'dokumen_bukti_url'=> $data['dokumenBuktiUrl'] ?? null,
+                'pesantren_name'     => $data['namaPesantren'],
+                'status'             => 'pending',
+                'jenis_pengajuan'    => $data['jenisPengajuan'] ?? 'pesantren_baru',
+                'pesantren_directory_id' => $data['pesantrenId'] ?? null,
+                'region_id'          => $region?->id,
+                'kecamatan'          => $data['kecamatan'],
+                'nama_pengelola'     => $data['namaPengelola'],
+                'email_pengelola'    => $data['emailPengelola'],
+                'dokumen_bukti_url'  => $data['dokumenBuktiUrl'] ?? null,
             ];
 
             if ($existing) {
                 $existing->update($claimData);
             } else {
-                PesantrenClaim::create(array_merge(['id' => \Illuminate\Support\Str::uuid(), 'user_id' => $user->id], $claimData));
+                PesantrenClaim::create(array_merge(['id' => Str::uuid(), 'user_id' => $user->id], $claimData));
             }
         });
 
         return response()->json([
             'success' => true,
-            'region'  => [
-                'id'   => $city->region->id,
-                'name' => $city->region->name,
-                'code' => $city->region->code,
-            ],
+            'region'  => $region ? [
+                'id'   => $region->id,
+                'name' => $region->name,
+                'code' => $region->code,
+            ] : null,
         ]);
     }
 
@@ -150,7 +155,8 @@ class InstitutionController extends Controller
             ],
             'region' => $claim->region ? [
                 'name'        => $claim->region->name,
-                'admin_phone' => '6281234567890',
+                // 'admin_phone' => '6281234567890',
+                'admin_phone' => '6289529566999',
             ] : null,
         ]);
     }

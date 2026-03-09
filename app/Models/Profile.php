@@ -12,7 +12,7 @@ class Profile extends Model
     protected $fillable = [
         'id', 'role', 'status_account', 'status_payment', 'profile_level',
         'nama_pesantren', 'nama_pengasuh', 'nama_media', 'alamat_singkat',
-        'no_wa_pendaftar', 'nip', 'city_id', 'region_id', 'logo_url',
+        'no_wa_pendaftar', 'nip', 'regency_id', 'region_id', 'logo_url',
         'foto_pengasuh_url', 'sk_pesantren_url', 'latitude', 'longitude',
         'jumlah_santri', 'tipe_pesantren', 'program_unggulan', 'sejarah',
         'visi_misi', 'social_links', 'is_alumni', 'niam', 'alamat_lengkap',
@@ -38,9 +38,9 @@ class Profile extends Model
         return $this->belongsTo(Region::class, 'region_id');
     }
 
-    public function city()
+    public function regency()
     {
-        return $this->belongsTo(City::class, 'city_id');
+        return $this->belongsTo(Regency::class, 'regency_id');
     }
 
     public function crews()

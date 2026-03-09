@@ -58,3 +58,52 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
 # mpjappsv3-api
+
+## Setup Database
+
+### 1. Migrasi & Seeder
+
+```bash
+php artisan migrate
+php artisan db:seed
+```
+
+Seeder akan membuat user-user berikut (password semua: `bismillah`):
+
+| Email | Role |
+|---|---|
+| admin@gmail.com | admin_pusat |
+| pusat@mpj.id | admin_pusat |
+| finance@mpj.id | admin_finance |
+| regional@mpj.id | admin_regional |
+| test@example.com | user |
+| user@mpj.id | user |
+| testuser99@test.com | user |
+
+### 2. Data Wilayah Administratif Indonesia
+
+Data wilayah (provinsi, kabupaten/kota, kecamatan, desa) diambil dari:
+**https://github.com/edwardsamuel/Wilayah-Administratif-Indonesia**
+
+Jalankan SQL berikut untuk mengisi tabel wilayah:
+
+```bash
+curl -s https://raw.githubusercontent.com/edwardsamuel/Wilayah-Administratif-Indonesia/refs/heads/master/mysql/indonesia.sql \
+  | mysql -h localhost -u root -p nama_database --force
+```
+
+Struktur hierarki wilayah:
+
+```
+provinces        (id: 2 digit)
+    └── regencies    (id: 4 digit,  FK: province_id)
+            └── districts    (id: 7 digit,  FK: regency_id)
+                    └── villages (id: 10 digit, FK: district_id)
+```
+
+| Tabel | Keterangan |
+|---|---|
+| `provinces` | Provinsi |
+| `regencies` | Kabupaten / Kota |
+| `districts` | Kecamatan |
+| `villages` | Desa / Kelurahan |

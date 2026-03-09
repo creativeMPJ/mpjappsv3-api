@@ -8,8 +8,8 @@ use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PricingPackage;
 use App\Models\Profile;
+use App\Models\Regency;
 use App\Models\Region;
-use App\Models\City;
 use App\Models\SystemSetting;
 use App\Models\UserRole;
 use Illuminate\Http\Request;
@@ -96,7 +96,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profiles = Profile::with('city:id,name')
+        $profiles = Profile::with('regency:id,name')
             ->where('status_account', 'pending')
             ->orderBy('created_at')
             ->get();
@@ -106,9 +106,9 @@ class AdminController extends Controller
                 'id'             => $p->id,
                 'nama_pesantren' => $p->nama_pesantren,
                 'nama_pengasuh'  => $p->nama_pengasuh,
-                'city_id'        => $p->city_id,
+                'regency_id'     => $p->regency_id,
                 'created_at'     => $p->created_at,
-                'city'           => $p->city ? ['name' => $p->city->name] : null,
+                'regency'        => $p->regency ? ['name' => $p->regency->name] : null,
             ]),
         ]);
     }
@@ -259,7 +259,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profiles = Profile::with(['region:id,name', 'city:id,name'])
+        $profiles = Profile::with(['region:id,name', 'regency:id,name'])
             ->orderBy('nama_pesantren')
             ->get();
 
@@ -277,7 +277,7 @@ class AdminController extends Controller
                 'nip'             => $p->nip,
                 'region_id'       => $p->region_id,
                 'region_name'     => $p->region?->name,
-                'city_name'       => $p->city?->name,
+                'regency_name'    => $p->regency?->name,
                 'status_account'  => $p->status_account,
                 'profile_level'   => $p->profile_level,
                 'alamat_singkat'  => $p->alamat_singkat,
@@ -617,13 +617,13 @@ class AdminController extends Controller
         $this->assertPusat();
 
         $regions = Region::orderBy('name')->get(['id', 'name', 'code']);
-        $cities  = City::orderBy('name')->get(['id', 'name', 'region_id']);
+        $cities  = Regency::orderBy('name')->get(['id', 'name', 'province_id']);
         $users   = Profile::with('region:id,name')->orderBy('nama_pesantren')
             ->get(['id', 'nama_pesantren', 'nama_pengasuh', 'region_id', 'role', 'status_account']);
 
         return response()->json([
             'regions' => $regions->map(fn($r) => ['id' => $r->id, 'name' => $r->name, 'code' => $r->code]),
-            'cities'  => $cities->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'region_id' => $c->region_id]),
+            'cities'  => $cities->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'province_id' => $c->province_id]),
             'users'   => $users->map(fn($u) => [
                 'id'             => $u->id,
                 'nama_pesantren' => $u->nama_pesantren,
@@ -665,25 +665,12 @@ class AdminController extends Controller
 
     public function addCity(Request $request)
     {
-        $this->assertPusat();
-
-        $data = $request->validate([
-            'name'     => 'required|string',
-            'regionId' => 'required|uuid',
-        ]);
-
-        $city = City::create(['id' => Str::uuid(), 'name' => $data['name'], 'region_id' => $data['regionId']]);
-
-        return response()->json(['city' => ['id' => $city->id, 'name' => $city->name, 'region_id' => $city->region_id]]);
+        return response()->json(['message' => 'Data kabupaten/kota dikelola dari data wilayah Indonesia'], 405);
     }
 
     public function deleteCity(Request $request, string $id)
     {
-        $this->assertPusat();
-
-        City::where('id', $id)->delete();
-
-        return response()->json(['success' => true]);
+        return response()->json(['message' => 'Data kabupaten/kota dikelola dari data wilayah Indonesia'], 405);
     }
 
     public function assignRegionalAdmin(Request $request)
@@ -916,7 +903,7 @@ class AdminController extends Controller
         $this->assertPusat();
 
         $claims = PesantrenClaim::with('region:id,name')
-            ->whereIn('status', ['regional_approved', 'pusat_approved'])
+            // ->whereIn('status', ['regional_approved', 'pusat_approved'])
             ->orderBy('created_at', 'desc')
             ->get();
 

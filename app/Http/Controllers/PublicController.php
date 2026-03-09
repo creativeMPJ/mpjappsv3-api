@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\City;
 use App\Models\Crew;
 use App\Models\PesantrenClaim;
+use App\Models\PesantrenDirectory;
 use App\Models\Profile;
+use App\Models\Regency;
 use App\Models\Region;
 use Illuminate\Http\Request;
 
@@ -19,21 +20,20 @@ class PublicController extends Controller
 
     public function cities()
     {
-        $cities = City::orderBy('name')->get(['id', 'name']);
+        $cities = Regency::orderBy('name')->get(['id', 'name', 'province_id']);
         return response()->json(['cities' => $cities]);
     }
 
     public function cityRegion(Request $request, string $id)
     {
-        $city = City::with('region')->find($id);
-        if (!$city) return response()->json(['message' => 'City not found'], 404);
+        $regency = Regency::with('province')->find($id);
+        if (!$regency) return response()->json(['message' => 'City not found'], 404);
 
         return response()->json([
-            'city'   => ['id' => $city->id, 'name' => $city->name],
-            'region' => [
-                'id'   => $city->region->id,
-                'name' => $city->region->name,
-                'code' => $city->region->code,
+            'city'     => ['id' => $regency->id, 'name' => $regency->name],
+            'province' => [
+                'id'   => $regency->province->id,
+                'name' => $regency->province->name,
             ],
         ]);
     }
@@ -164,6 +164,48 @@ class PublicController extends Controller
                     'logo_url'       => $profile->logo_url,
                 ],
             ],
+        ]);
+    }
+
+    public function directorySearch(Request $request)
+    {
+        $search   = trim($request->query('search', ''));
+        $regionId = trim($request->query('regionId', ''));
+
+        $query = PesantrenDirectory::with('region:id,name,code')
+            ->whereNull('deleted_at');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('nama_pesantren', 'like', "%{$search}%")
+                  ->orWhere('kota_kabupaten', 'like', "%{$search}%")
+                  ->orWhere('alamat', 'like', "%{$search}%");
+            });
+        }
+
+        if ($regionId && $regionId !== 'all') {
+            $query->where('region_id', $regionId);
+        }
+
+        $results = $query->orderBy('nama_pesantren')->take(100)->get();
+
+        return response()->json([
+            'data' => $results->map(fn($p) => [
+                'id'              => $p->id,
+                'nama_pesantren'  => $p->nama_pesantren,
+                'nama_pengasuh'   => $p->nama_pengasuh,
+                'alamat'          => $p->alamat,
+                'kota_kabupaten'  => $p->kota_kabupaten,
+                'regency_id'      => $p->regency_id,
+                'region_id'       => $p->region_id,
+                'no_wa_admin'     => $p->no_wa_admin,
+                'email_admin'     => $p->email_admin,
+                'maps_link'       => $p->maps_link,
+                'kode_regional'   => $p->kode_regional,
+                'is_claimed'      => $p->is_claimed,
+                'source_year'     => $p->source_year,
+                'region'          => $p->region ? ['id' => $p->region->id, 'name' => $p->region->name, 'code' => $p->region->code] : null,
+            ]),
         ]);
     }
 }

@@ -12,9 +12,9 @@ class Region extends Model
 
     protected $fillable = ['id', 'name', 'code'];
 
-    public function cities()
+    public function regencies()
     {
-        return $this->hasMany(City::class, 'region_id');
+        return $this->belongsToMany(Regency::class, 'region_regencies', 'region_id', 'regency_id');
     }
 
     public function profiles()
