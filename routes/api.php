@@ -14,6 +14,28 @@ use Illuminate\Support\Facades\Route;
 // ── Health check ─────────────────────────────────────────────────────
 Route::get('/health', fn() => response()->json(['status' => 'ok', 'timestamp' => now()]));
 
+// ── Dev reset (truncate all data) ─────────────────────────────────────
+Route::post('/dev/reset', function (\Illuminate\Http\Request $request) {
+    if ($request->input('password') !== 'sulip') {
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
+    $tables = [
+        'otp_verifications', 'follow_up_logs', 'payments',
+        'pesantren_claims', 'pesantren_directory', 'crews',
+        'user_roles', 'profiles', 'users',
+        'region_regencies', 'regions', 'cache',
+    ];
+
+    \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0');
+    foreach ($tables as $table) {
+        \Illuminate\Support\Facades\DB::table($table)->truncate();
+    }
+    \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1');
+
+    return response()->json(['success' => true, 'message' => 'Data truncated.']);
+});
+
 // ── Auth ──────────────────────────────────────────────────────────────
 Route::prefix('auth')->group(function () {
     Route::post('/register',        [AuthController::class, 'register']);
