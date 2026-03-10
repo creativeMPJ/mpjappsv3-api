@@ -28,7 +28,8 @@ Route::post('/artisan', function (\Illuminate\Http\Request $request) {
         return response()->json(['message' => 'Command not allowed', 'allowed' => $allowed], 422);
     }
 
-    $params = $command === 'db:seed' ? ['--force' => true] : [];
+    $needsForce = in_array($command, ['db:seed', 'migrate']);
+    $params = $needsForce ? ['--force' => true] : [];
     \Illuminate\Support\Facades\Artisan::call($command, $params);
 
     return response()->json([
