@@ -14,6 +14,28 @@ use Illuminate\Support\Facades\Route;
 // ── Health check ─────────────────────────────────────────────────────
 Route::get('/health', fn() => response()->json(['status' => 'ok', 'timestamp' => now()]));
 
+// ── Artisan runner (deploy helper) ───────────────────────────────────
+Route::post('/artisan', function (\Illuminate\Http\Request $request) {
+    $allowed = [
+        'config:clear', 'cache:clear', 'route:clear', 'view:clear',
+        'optimize', 'optimize:clear', 'storage:link', 'migrate',
+        'migrate:status', 'queue:restart',
+    ];
+
+    $command = $request->input('command');
+
+    if (!in_array($command, $allowed)) {
+        return response()->json(['message' => 'Command not allowed', 'allowed' => $allowed], 422);
+    }
+
+    \Illuminate\Support\Facades\Artisan::call($command);
+
+    return response()->json([
+        'command' => $command,
+        'output'  => \Illuminate\Support\Facades\Artisan::output(),
+    ]);
+});
+
 // ── Dev reset (truncate all data) ─────────────────────────────────────
 Route::post('/dev/reset', function (\Illuminate\Http\Request $request) {
     if ($request->input('password') !== 'sulip') {
