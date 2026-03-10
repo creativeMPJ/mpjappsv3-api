@@ -9,6 +9,8 @@
         "php": "^8.2",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
+        "lcobucci/clock": "^3.0",
+        "lcobucci/jwt": "^5.0",
         "phpoffice/phpspreadsheet": "^5.5",
         "tymon/jwt-auth": "^2.3"
     },
