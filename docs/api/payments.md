@@ -93,6 +93,38 @@ Mendapatkan informasi pembayaran saat ini dan instruksi transfer bank untuk peng
 
 ---
 
+## GET /api/payments/summary
+
+Mendapatkan status pembayaran user secara ringkas tanpa redirect logic. Digunakan oleh halaman `/user/administrasi`.
+
+**Auth:** Diperlukan
+
+**Response 200 — Belum ada payment:**
+```json
+{
+  "paymentStatus": "pending_payment",
+  "payment": null
+}
+```
+
+**Response 200 — Ada payment:**
+```json
+{
+  "paymentStatus": "pending_payment | pending_verification | verified | rejected",
+  "payment": {
+    "id": "uuid",
+    "baseAmount": 150000,
+    "uniqueCode": 542,
+    "totalAmount": 150542,
+    "rejectionReason": null
+  }
+}
+```
+
+> Berbeda dengan `/current`, endpoint ini **tidak melakukan redirect** dan selalu return data mentah apapun status claim-nya.
+
+---
+
 ## POST /api/payments/submit-proof
 
 Mengunggah bukti transfer pembayaran.

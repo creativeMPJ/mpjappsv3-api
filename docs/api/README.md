@@ -52,6 +52,7 @@ Tokens are obtained via `POST /api/auth/login` or `POST /api/auth/register`.
 | [claims.md](claims.md) | `/api/claims` | Pengajuan klaim pesantren |
 | [payments.md](payments.md) | `/api/payments` | Pembayaran |
 | [media.md](media.md) | `/api/media` | Dashboard pengguna & manajemen kru |
+| [profile.md](profile.md) | `/api/profile`, `/api/media/upload-pesantren` | Identitas & upload foto pesantren |
 | [institution.md](institution.md) | `/api/institution` | Pendaftaran institusi |
 | [regional.md](regional.md) | `/api/regional` | Panel admin wilayah |
 | [admin.md](admin.md) | `/api/admin` | Panel admin pusat |

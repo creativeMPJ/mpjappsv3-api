@@ -1140,4 +1140,16 @@ class AdminController extends Controller
 
         return response()->json(['success' => true, 'is_active' => !$pkg->is_active]);
     }
+
+    public function financeStats(Request $request)
+    {
+        $this->assertPusatOrFinance();
+
+        return response()->json([
+            'total_income'         => (int) Payment::where('status', 'verified')->sum('total_amount'),
+            'pending_verification' => Payment::where('status', 'pending_verification')->count(),
+            'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
+            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('verified_at', today())->count(),
+        ]);
+    }
 }

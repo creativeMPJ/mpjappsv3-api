@@ -13,7 +13,7 @@ class Profile extends Model
         'id', 'role', 'status_account', 'status_payment', 'profile_level',
         'nama_pesantren', 'nama_pengasuh', 'nama_media', 'alamat_singkat',
         'no_wa_pendaftar', 'nip', 'regency_id', 'region_id', 'logo_url',
-        'foto_pengasuh_url', 'sk_pesantren_url', 'latitude', 'longitude',
+        'foto_pengasuh_url', 'dawuh_pengasuh', 'sk_pesantren_url', 'latitude', 'longitude',
         'jumlah_santri', 'tipe_pesantren', 'program_unggulan', 'sejarah',
         'visi_misi', 'social_links', 'is_alumni', 'niam', 'alamat_lengkap',
         'kecamatan', 'desa', 'kode_pos', 'maps_link', 'ketua_media',

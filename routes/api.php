@@ -7,6 +7,7 @@ use App\Http\Controllers\EventController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicController;
 use App\Http\Controllers\RegionalController;
 use Illuminate\Support\Facades\Route;
@@ -99,8 +100,16 @@ Route::middleware('auth:api')->group(function () {
     // ── Payments ──────────────────────────────────────────────────────
     Route::prefix('payments')->group(function () {
         Route::get('/current',       [PaymentController::class, 'current']);
+        Route::get('/summary',       [PaymentController::class, 'summary']);
         Route::post('/submit-proof', [PaymentController::class, 'submitProof']);
     });
+
+    // ── Profile pesantren ─────────────────────────────────────────────
+    Route::prefix('profile')->group(function () {
+        Route::get('/pesantren',  [ProfileController::class, 'getPesantren']);
+        Route::put('/pesantren',  [ProfileController::class, 'updatePesantren']);
+    });
+    Route::post('/media/upload-pesantren', [ProfileController::class, 'uploadPesantren']);
 
     // ── Media (user dashboard) ────────────────────────────────────────
     Route::prefix('media')->group(function () {
@@ -212,6 +221,11 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/pricing-packages',                   [AdminController::class, 'createPricingPackage']);
         Route::put('/pricing-packages/{id}',               [AdminController::class, 'updatePricingPackage']);
         Route::patch('/pricing-packages/{id}/toggle',      [AdminController::class, 'togglePricingPackage']);
+    });
+
+    // ── Finance ───────────────────────────────────────────────────────
+    Route::prefix('finance')->group(function () {
+        Route::get('/stats', [AdminController::class, 'financeStats']);
     });
 
     // ── Events ────────────────────────────────────────────────────────

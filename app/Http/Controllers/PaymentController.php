@@ -99,6 +99,44 @@ class PaymentController extends Controller
         ]);
     }
 
+    public function summary(Request $request)
+    {
+        $user  = auth()->user();
+        $claim = PesantrenClaim::where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$claim) {
+            return response()->json([
+                'paymentStatus' => 'pending_payment',
+                'payment'       => null,
+            ]);
+        }
+
+        $payment = Payment::where('user_id', $user->id)
+            ->where('pesantren_claim_id', $claim->id)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$payment) {
+            return response()->json([
+                'paymentStatus' => 'pending_payment',
+                'payment'       => null,
+            ]);
+        }
+
+        return response()->json([
+            'paymentStatus' => $payment->status,
+            'payment'       => [
+                'id'              => $payment->id,
+                'baseAmount'      => $payment->base_amount,
+                'uniqueCode'      => $payment->unique_code,
+                'totalAmount'     => $payment->total_amount,
+                'rejectionReason' => $payment->rejection_reason,
+            ],
+        ]);
+    }
+
     public function submitProof(Request $request)
     {
         $user = auth()->user();
