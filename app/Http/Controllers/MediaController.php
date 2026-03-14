@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Crew;
 use App\Models\JabatanCode;
 use App\Models\PesantrenClaim;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -48,7 +48,7 @@ class MediaController extends Controller
             'jabatan'       => 'nullable|string',
         ]);
 
-        $profile = Profile::find($user->id);
+        $profile = PesantrenProfile::find($user->id);
         if (!$profile) return response()->json(['message' => 'Profile tidak ditemukan'], 404);
 
         $count = Crew::where('profile_id', $user->id)->count();
@@ -157,16 +157,19 @@ class MediaController extends Controller
     public function profileSettings(Request $request)
     {
         $user  = auth()->user();
-        $profile = Profile::find($user->id);
         $claim = PesantrenClaim::where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->select('nama_pengelola')
             ->first();
 
+        $linkedCrew = ($user->reff_type === 'crew' && $user->reff_id)
+            ? Crew::find($user->reff_id)
+            : null;
+
         return response()->json([
             'namaPengelola' => $claim?->nama_pengelola,
             'email'         => $user->email,
-            'noWaPendaftar' => $profile?->no_wa_pendaftar,
+            'noWaPendaftar' => $linkedCrew?->no_wa,
         ]);
     }
 }

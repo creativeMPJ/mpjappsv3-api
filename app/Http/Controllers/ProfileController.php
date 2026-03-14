@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use Illuminate\Http\Request;
 
 class ProfileController extends Controller
@@ -10,7 +10,7 @@ class ProfileController extends Controller
     public function getPesantren(Request $request)
     {
         $user    = auth()->user();
-        $profile = Profile::with(['region', 'regency'])->find($user->id);
+        $profile = PesantrenProfile::with(['region', 'regency'])->find($user->id);
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);
@@ -52,7 +52,7 @@ class ProfileController extends Controller
     public function updatePesantren(Request $request)
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $profile = PesantrenProfile::find($user->id);
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);
@@ -171,7 +171,7 @@ class ProfileController extends Controller
             'logo_media'     => 'logo_media_path',
         ];
 
-        Profile::where('id', $user->id)->update([$fieldMap[$type] => $url]);
+        PesantrenProfile::where('id', $user->id)->update([$fieldMap[$type] => $url]);
 
         return response()->json(['url' => $url]);
     }

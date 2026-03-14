@@ -19,6 +19,6 @@ class Region extends Model
 
     public function profiles()
     {
-        return $this->hasMany(Profile::class, 'region_id');
+        return $this->hasMany(PesantrenProfile::class, 'region_id');
     }
 }

@@ -11,7 +11,7 @@ class Crew extends Model
 
     protected $fillable = [
         'id', 'profile_id', 'nama', 'jabatan', 'jabatan_code_id',
-        'niam', 'skill', 'xp_level',
+        'niam', 'no_wa', 'skill', 'xp_level',
     ];
 
     protected $casts = ['skill' => 'array'];
@@ -23,6 +23,6 @@ class Crew extends Model
 
     public function profile()
     {
-        return $this->belongsTo(Profile::class, 'profile_id');
+        return $this->belongsTo(PesantrenProfile::class, 'profile_id');
     }
 }

@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Crew;
 use App\Models\PasswordResetRequest;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
@@ -22,9 +24,10 @@ class AuthController extends Controller
             'namaPesantren' => [
                 'nullable',
                 'string',
-                Rule::unique('profiles', 'nama_pesantren')->whereNotNull('nama_pesantren'),
+                Rule::unique('pesantren_profiles', 'nama_pesantren')->whereNotNull('nama_pesantren'),
             ],
             'namaPengasuh'  => 'nullable|string',
+            'noWhatsapp'    => 'nullable|string',
         ], [
             'email.required'        => 'Email wajib diisi.',
             'email.email'           => 'Format email tidak valid.',
@@ -36,35 +39,51 @@ class AuthController extends Controller
 
         $email = strtolower($data['email']);
 
-        $user = User::create([
-            'id'            => Str::uuid(),
-            'email'         => $email,
-            'password_hash' => Hash::make($data['password']),
-        ]);
+        $result = DB::transaction(function () use ($data, $email) {
+            $user = User::create([
+                'id'            => Str::uuid(),
+                'email'         => $email,
+                'password_hash' => Hash::make($data['password']),
+            ]);
 
-        Profile::create([
-            'id'             => $user->id,
-            'role'           => 'user',
-            'status_account' => 'active',
-            'nama_pesantren' => $data['namaPesantren'] ?? null,
-            'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
-        ]);
+            PesantrenProfile::create([
+                'id'             => $user->id,
+                'role'           => 'user',
+                'status_account' => 'active',
+                'nama_pesantren' => $data['namaPesantren'] ?? null,
+                'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
+            ]);
 
-        \DB::table('user_roles')->insert([
-            'id'         => Str::uuid(),
-            'user_id'    => $user->id,
-            'role'       => 'user',
-            'created_at' => now(),
-        ]);
+            $crew = Crew::create([
+                'id'         => Str::uuid(),
+                'profile_id' => $user->id,
+                'nama'       => $data['namaPengasuh'] ?? 'Pengasuh',
+                'no_wa'      => $data['noWhatsapp'] ?? null,
+            ]);
 
-        $profile = Profile::find($user->id);
-        $token = JWTAuth::fromUser($user);
+            User::where('id', $user->id)->update([
+                'reff_type' => 'crew',
+                'reff_id'   => $crew->id,
+            ]);
+
+            DB::table('user_roles')->insert([
+                'id'         => Str::uuid(),
+                'user_id'    => $user->id,
+                'role'       => 'user',
+                'created_at' => now(),
+            ]);
+
+            return $user;
+        });
+
+        $profile = PesantrenProfile::find($result->id);
+        $token = JWTAuth::fromUser($result);
 
         return response()->json([
             'token' => $token,
             'user'  => [
-                'id'    => $user->id,
-                'email' => $user->email,
+                'id'    => $result->id,
+                'email' => $result->email,
                 'role'  => $profile->role ?? 'user',
             ],
         ], 201);
@@ -87,7 +106,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        $profile = Profile::find($user->id);
+        $profile = PesantrenProfile::find($user->id);
         $token   = JWTAuth::fromUser($user);
 
         return response()->json([
@@ -103,7 +122,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $profile = PesantrenProfile::find($user->id);
 
         if (!$profile) {
             return response()->json(['message' => 'User not found'], 404);

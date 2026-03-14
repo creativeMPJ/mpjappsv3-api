@@ -7,7 +7,7 @@ use App\Models\JabatanCode;
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PricingPackage;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\Regency;
 use App\Models\Region;
 use App\Models\SystemSetting;
@@ -21,7 +21,7 @@ class AdminController extends Controller
     private function assertPusat()
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $profile = PesantrenProfile::find($user->id);
         if (!$profile || $profile->role !== 'admin_pusat') {
             abort(403, 'Forbidden');
         }
@@ -31,7 +31,7 @@ class AdminController extends Controller
     private function assertPusatOrFinance()
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $profile = PesantrenProfile::find($user->id);
         if (!$profile || !in_array($profile->role, ['admin_pusat', 'admin_finance'])) {
             abort(403, 'Forbidden');
         }
@@ -52,13 +52,13 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $totalPesantren   = Profile::where('status_account', 'active')->count();
+        $totalPesantren   = PesantrenProfile::where('status_account', 'active')->count();
         $totalKru         = Crew::count();
         $totalWilayah     = Region::count();
         $pendingPayments  = Payment::where('status', 'pending_verification')->count();
         $verifiedPayments = Payment::where('status', 'verified')->sum('total_amount');
 
-        $activeProfiles = Profile::where('status_account', 'active')->get(['profile_level']);
+        $activeProfiles = PesantrenProfile::where('status_account', 'active')->get(['profile_level']);
         $levelStats     = ['basic' => 0, 'silver' => 0, 'gold' => 0, 'platinum' => 0];
         foreach ($activeProfiles as $p) {
             if (isset($levelStats[$p->profile_level])) {
@@ -66,7 +66,7 @@ class AdminController extends Controller
             }
         }
 
-        $recentProfiles = Profile::with('region:id,name')
+        $recentProfiles = PesantrenProfile::with('region:id,name')
             ->orderBy('created_at', 'desc')
             ->take(8)
             ->get(['id', 'nama_pesantren', 'nip', 'status_account', 'profile_level', 'created_at', 'region_id']);
@@ -96,7 +96,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profiles = Profile::with('regency:id,name')
+        $profiles = PesantrenProfile::with('regency:id,name')
             ->where('status_account', 'pending')
             ->orderBy('created_at')
             ->get();
@@ -117,7 +117,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profile = Profile::with('region:id,code')->find($id);
+        $profile = PesantrenProfile::with('region:id,code')->find($id);
         if (!$profile) return response()->json(['message' => 'Profil tidak ditemukan'], 404);
 
         $year = now()->format('y');
@@ -134,7 +134,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        Profile::where('id', $id)->update(['status_account' => 'rejected']);
+        PesantrenProfile::where('id', $id)->update(['status_account' => 'rejected']);
 
         return response()->json(['success' => true]);
     }
@@ -143,7 +143,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profiles = Profile::with('region:id,name')
+        $profiles = PesantrenProfile::with('region:id,name')
             ->where('status_account', 'pending')
             ->orderBy('created_at', 'desc')
             ->get();
@@ -226,13 +226,13 @@ class AdminController extends Controller
 
         DB::transaction(function () use ($data) {
             if ($data['role'] === 'admin_regional' && !empty($data['regionId'])) {
-                Profile::where('role', 'admin_regional')
+                PesantrenProfile::where('role', 'admin_regional')
                     ->where('region_id', $data['regionId'])
                     ->where('id', '!=', $data['profileId'])
                     ->update(['role' => 'user']);
             }
 
-            Profile::where('id', $data['profileId'])->update([
+            PesantrenProfile::where('id', $data['profileId'])->update([
                 'role'      => $data['role'],
                 'region_id' => $data['role'] === 'admin_regional' ? ($data['regionId'] ?? null) : DB::raw('region_id'),
             ]);
@@ -248,7 +248,7 @@ class AdminController extends Controller
         $this->assertPusat();
 
         DB::transaction(function () use ($userId) {
-            Profile::where('id', $userId)->update(['role' => 'user']);
+            PesantrenProfile::where('id', $userId)->update(['role' => 'user']);
             $this->upsertUserRole($userId, 'user');
         });
 
@@ -259,7 +259,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profiles = Profile::with(['region:id,name', 'regency:id,name'])
+        $profiles = PesantrenProfile::with(['region:id,name', 'regency:id,name'])
             ->orderBy('nama_pesantren')
             ->get();
 
@@ -309,7 +309,7 @@ class AdminController extends Controller
             'alamat_singkat' => 'nullable|string',
         ]);
 
-        Profile::where('id', $id)->update(array_filter([
+        PesantrenProfile::where('id', $id)->update(array_filter([
             'nama_pesantren' => $data['nama_pesantren'] ?? null,
             'nama_pengasuh'  => $data['nama_pengasuh'] ?? null,
             'alamat_singkat' => $data['alamat_singkat'] ?? null,
@@ -328,7 +328,7 @@ class AdminController extends Controller
             'no_wa_pendaftar' => 'nullable|string',
         ]);
 
-        Profile::where('id', $id)->update(array_filter([
+        PesantrenProfile::where('id', $id)->update(array_filter([
             'nama_pesantren'  => $data['nama_pesantren'] ?? null,
             'nama_media'      => $data['nama_media'] ?? null,
             'no_wa_pendaftar' => $data['no_wa_pendaftar'] ?? null,
@@ -382,7 +382,7 @@ class AdminController extends Controller
                 if ($type === 'pesantren') {
                     $nip = trim($row['NIP'] ?? $row['nip'] ?? '');
                     if (!$nip) { $results['errors'][] = "Baris {$num}: NIP kosong"; $results['skipped']++; continue; }
-                    $profile = Profile::where('nip', $nip)->first();
+                    $profile = PesantrenProfile::where('nip', $nip)->first();
                     if (!$profile) { $results['errors'][] = "Baris {$num}: NIP {$nip} tidak ditemukan"; $results['skipped']++; continue; }
                     $profile->update(array_filter([
                         'nama_pesantren' => $row['Nama Pesantren'] ?? $row['nama_pesantren'] ?? null,
@@ -392,7 +392,7 @@ class AdminController extends Controller
                 } elseif ($type === 'media') {
                     $nip = trim($row['NIP'] ?? $row['nip'] ?? '');
                     if (!$nip) { $results['errors'][] = "Baris {$num}: NIP kosong"; $results['skipped']++; continue; }
-                    $profile = Profile::where('nip', $nip)->first();
+                    $profile = PesantrenProfile::where('nip', $nip)->first();
                     if (!$profile) { $results['errors'][] = "Baris {$num}: NIP {$nip} tidak ditemukan"; $results['skipped']++; continue; }
                     $profile->update(array_filter([
                         'nama_pesantren'  => $row['Nama Pesantren'] ?? $row['nama_pesantren'] ?? null,
@@ -590,7 +590,7 @@ class AdminController extends Controller
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
 
         DB::transaction(function () use ($crew) {
-            Profile::where('id', $crew->profile_id)->update(['role' => 'admin_pusat']);
+            PesantrenProfile::where('id', $crew->profile_id)->update(['role' => 'admin_pusat']);
             $this->upsertUserRole($crew->profile_id, 'admin_pusat');
         });
 
@@ -605,7 +605,7 @@ class AdminController extends Controller
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
 
         DB::transaction(function () use ($crew) {
-            Profile::where('id', $crew->profile_id)->update(['role' => 'user']);
+            PesantrenProfile::where('id', $crew->profile_id)->update(['role' => 'user']);
             $this->upsertUserRole($crew->profile_id, 'user');
         });
 
@@ -618,7 +618,7 @@ class AdminController extends Controller
 
         $regions = Region::orderBy('name')->get(['id', 'name', 'code']);
         $cities  = Regency::orderBy('name')->get(['id', 'name', 'province_id']);
-        $users   = Profile::with('region:id,name')->orderBy('nama_pesantren')
+        $users   = PesantrenProfile::with('region:id,name')->orderBy('nama_pesantren')
             ->get(['id', 'nama_pesantren', 'nama_pengasuh', 'region_id', 'role', 'status_account']);
 
         return response()->json([
@@ -686,7 +686,7 @@ class AdminController extends Controller
         if (!$region) return response()->json(['message' => 'Regional tidak ditemukan'], 404);
 
         DB::transaction(function () use ($data) {
-            Profile::where('id', $data['userId'])->update([
+            PesantrenProfile::where('id', $data['userId'])->update([
                 'role'      => 'admin_regional',
                 'region_id' => $data['regionId'],
             ]);
@@ -700,7 +700,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $users = Profile::with('region:id,name')
+        $users = PesantrenProfile::with('region:id,name')
             ->orderBy('created_at', 'desc')
             ->get(['id', 'nama_pesantren', 'nama_pengasuh', 'role', 'status_account', 'status_payment', 'region_id']);
 
@@ -729,7 +729,7 @@ class AdminController extends Controller
         ]);
 
         DB::transaction(function () use ($id, $data) {
-            Profile::where('id', $id)->update([
+            PesantrenProfile::where('id', $id)->update([
                 'role'           => $data['role'],
                 'status_account' => $data['statusAccount'],
                 'status_payment' => $data['statusPayment'],
@@ -790,9 +790,9 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $totalUsers    = Profile::count();
-        $totalPesantren= Profile::whereNotNull('nama_pesantren')->count();
-        $paidUsers     = Profile::where('status_payment', 'paid')->count();
+        $totalUsers    = PesantrenProfile::count();
+        $totalPesantren= PesantrenProfile::whereNotNull('nama_pesantren')->count();
+        $paidUsers     = PesantrenProfile::where('status_payment', 'paid')->count();
         $revenue       = $paidUsers * 350000;
 
         return response()->json([
@@ -810,10 +810,10 @@ class AdminController extends Controller
         $region = Region::with('cities:id,name,region_id')->find($id);
         if (!$region) return response()->json(['message' => 'Regional tidak ditemukan'], 404);
 
-        $memberCount  = Profile::where('region_id', $id)->where('role', 'user')->count();
-        $pesantrenCount = Profile::where('region_id', $id)->whereNotNull('nama_pesantren')->count();
-        $adminCount   = Profile::where('region_id', $id)->where('role', 'admin_regional')->count();
-        $recentProfiles = Profile::where('region_id', $id)
+        $memberCount  = PesantrenProfile::where('region_id', $id)->where('role', 'user')->count();
+        $pesantrenCount = PesantrenProfile::where('region_id', $id)->whereNotNull('nama_pesantren')->count();
+        $adminCount   = PesantrenProfile::where('region_id', $id)->where('role', 'admin_regional')->count();
+        $recentProfiles = PesantrenProfile::where('region_id', $id)
             ->whereNotNull('nama_pesantren')
             ->orderBy('created_at', 'desc')
             ->take(5)
@@ -893,7 +893,7 @@ class AdminController extends Controller
 
         if ($lateClaims->isEmpty()) return response()->json(['count' => 0]);
 
-        $count = Profile::whereIn('id', $lateClaims)->where('status_payment', 'unpaid')->count();
+        $count = PesantrenProfile::whereIn('id', $lateClaims)->where('status_payment', 'unpaid')->count();
 
         return response()->json(['count' => $count]);
     }
@@ -1008,7 +1008,7 @@ class AdminController extends Controller
                 'mpj_id_number'  => $generatedNip,
             ]);
 
-            Profile::where('id', $payment->user_id)->update([
+            PesantrenProfile::where('id', $payment->user_id)->update([
                 'status_account' => 'active',
                 'status_payment' => 'paid',
                 'nip'            => $generatedNip,
@@ -1030,7 +1030,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $profiles = Profile::with('region:id,name')
+        $profiles = PesantrenProfile::with('region:id,name')
             ->where('status_account', 'active')
             ->whereIn('profile_level', ['silver', 'gold'])
             ->orderBy('nama_pesantren')
@@ -1055,7 +1055,7 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        Profile::where('id', $id)->update(['profile_level' => 'platinum']);
+        PesantrenProfile::where('id', $id)->update(['profile_level' => 'platinum']);
 
         return response()->json(['success' => true]);
     }

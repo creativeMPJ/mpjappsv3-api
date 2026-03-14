@@ -20,7 +20,7 @@ class Regency extends Model
 
     public function profiles()
     {
-        return $this->hasMany(Profile::class, 'regency_id');
+        return $this->hasMany(PesantrenProfile::class, 'regency_id');
     }
 
     public function regions()

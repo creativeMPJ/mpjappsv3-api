@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\Region;
 use App\Models\User;
 use App\Models\UserRole;
@@ -32,7 +32,7 @@ class RegionalAdminSeeder extends Seeder
                 ['id' => (string) Str::uuid(), 'password_hash' => Hash::make('bismillah')]
             );
 
-            Profile::firstOrCreate(
+            PesantrenProfile::firstOrCreate(
                 ['id' => $user->id],
                 [
                     'role'           => 'admin_regional',
