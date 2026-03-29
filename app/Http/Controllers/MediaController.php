@@ -20,9 +20,12 @@ class MediaController extends Controller
 
     public function getCrew(Request $request)
     {
-        $user  = auth()->user();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+        if (!$profile) return response()->json(['crews' => []]);
+
         $crews = Crew::with('jabatanCode:id,name,code')
-            ->where('profile_id', $user->id)
+            ->where('profile_id', $profile->id)
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -48,10 +51,10 @@ class MediaController extends Controller
             'jabatan'       => 'nullable|string',
         ]);
 
-        $profile = PesantrenProfile::find($user->id);
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
         if (!$profile) return response()->json(['message' => 'Profile tidak ditemukan'], 404);
 
-        $count = Crew::where('profile_id', $user->id)->count();
+        $count = Crew::where('profile_id', $profile->id)->count();
         if ($count >= 3) {
             return response()->json(['message' => 'Slot gratis sudah penuh (3/3). Upgrade untuk menambah kru.'], 403);
         }
@@ -72,7 +75,7 @@ class MediaController extends Controller
 
         $crew = Crew::create([
             'id'              => Str::uuid(),
-            'profile_id'      => $user->id,
+            'profile_id'      => $profile->id,
             'nama'            => $data['nama'],
             'jabatan'         => $jabatanName,
             'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
@@ -96,13 +99,14 @@ class MediaController extends Controller
 
     public function updateCrew(Request $request, string $id)
     {
-        $user = auth()->user();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
         $data = $request->validate([
             'nama'    => 'required|string',
             'jabatan' => 'nullable|string',
         ]);
 
-        $crew = Crew::where('id', $id)->where('profile_id', $user->id)->first();
+        $crew = Crew::where('id', $id)->where('profile_id', $profile?->id)->first();
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
 
         $crew->update(['nama' => $data['nama'], 'jabatan' => $data['jabatan'] ?? null]);
@@ -120,8 +124,9 @@ class MediaController extends Controller
 
     public function deleteCrew(Request $request, string $id)
     {
-        $user = auth()->user();
-        $crew = Crew::where('id', $id)->where('profile_id', $user->id)->first();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+        $crew    = Crew::where('id', $id)->where('profile_id', $profile?->id)->first();
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
 
         $crew->delete();
@@ -137,7 +142,8 @@ class MediaController extends Controller
             ->select('regional_approved_at', 'approved_at', 'status')
             ->first();
 
-        $koordinator = Crew::where('profile_id', $user->id)
+        $profile     = PesantrenProfile::where('user_id', $user->id)->first();
+        $koordinator = Crew::where('profile_id', $profile?->id)
             ->where('jabatan', 'Koordinator')
             ->select('nama', 'niam', 'jabatan', 'xp_level')
             ->first();

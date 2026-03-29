@@ -39,7 +39,7 @@ return new class extends Migration {
         if (!Schema::hasTable('profiles')) {
             Schema::create('profiles', function (Blueprint $table) {
                 $table->uuid('id')->primary();
-                $table->enum('role', ['user', 'admin_regional', 'admin_pusat', 'admin_finance', 'coordinator', 'crew'])->default('user');
+                $table->uuid('user_id')->unique();
                 $table->enum('status_account', ['pending', 'active', 'rejected'])->default('pending');
                 $table->enum('status_payment', ['paid', 'unpaid', 'expired'])->default('unpaid');
                 $table->enum('profile_level', ['basic', 'silver', 'gold', 'platinum'])->default('basic');
@@ -82,9 +82,19 @@ return new class extends Migration {
                 $table->json('jenjang_pendidikan')->nullable();
                 $table->dateTime('created_at', 0)->useCurrent();
                 $table->dateTime('updated_at', 0)->useCurrent()->useCurrentOnUpdate();
-                $table->foreign('id')->references('id')->on('users')->onDelete('cascade');
+                $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
                 $table->foreign('city_id')->references('id')->on('cities');
                 $table->foreign('region_id')->references('id')->on('regions');
+            });
+        }
+
+        if (!Schema::hasTable('roles')) {
+            Schema::create('roles', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->string('nama');
+                $table->boolean('is_super_admin')->default(false);
+                $table->json('akses');
+                $table->timestamps();
             });
         }
 
@@ -92,7 +102,8 @@ return new class extends Migration {
             Schema::create('user_roles', function (Blueprint $table) {
                 $table->uuid('id')->primary();
                 $table->uuid('user_id');
-                $table->enum('role', ['user', 'admin_regional', 'admin_pusat', 'admin_finance', 'coordinator', 'crew'])->default('user');
+                $table->uuid('role_id')->nullable();
+                $table->foreign('role_id')->references('id')->on('roles')->nullOnDelete();
                 $table->dateTime('created_at', 0)->useCurrent();
                 $table->index('user_id');
             });

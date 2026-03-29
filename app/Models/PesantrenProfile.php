@@ -12,7 +12,7 @@ class PesantrenProfile extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'id', 'role', 'status_account', 'status_payment', 'profile_level',
+        'id', 'user_id', 'status_account', 'status_payment', 'profile_level',
         'nama_pesantren', 'nama_pengasuh', 'nama_media', 'alamat_singkat',
         'no_wa_pendaftar', 'nip', 'regency_id', 'region_id', 'logo_url',
         'foto_pengasuh_url', 'dawuh_pengasuh', 'sk_pesantren_url', 'latitude', 'longitude',
@@ -32,7 +32,7 @@ class PesantrenProfile extends Model
 
     public function user()
     {
-        return $this->belongsTo(User::class, 'id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function region()

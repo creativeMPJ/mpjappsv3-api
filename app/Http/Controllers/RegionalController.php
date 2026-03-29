@@ -18,9 +18,10 @@ class RegionalController extends Controller
     private function assertRegional()
     {
         $user    = auth()->user();
-        $profile = PesantrenProfile::find($user->id);
+        $role    = $user->activeRole();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$profile || $profile->role !== 'admin_regional' || !$profile->region_id) {
+        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
 

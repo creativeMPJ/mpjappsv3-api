@@ -37,7 +37,13 @@ Mendaftarkan akun baru dan langsung mengembalikan JWT token.
   "user": {
     "id": "uuid",
     "email": "pengelola@pesantren.com",
-    "role": "user"
+    "role": "Pengguna Pesantren",
+    "akses": [
+      "pesantren.view_own",
+      "pesantren.update_own",
+      "payments.view_current",
+      "..."
+    ]
   }
 }
 ```
@@ -76,10 +82,18 @@ Login dan mendapatkan JWT token.
   "user": {
     "id": "uuid",
     "email": "admin@gmail.com",
-    "role": "admin_pusat"
+    "role": "Admin Pusat",
+    "akses": [
+      "dashboard.view",
+      "roles.create",
+      "payments.approve",
+      "..."
+    ]
   }
 }
 ```
+
+> Field `akses` berisi daftar permission yang dimiliki user sesuai rolenya. Lihat [roles.md](roles.md) untuk daftar lengkap per role.
 
 **Error Responses:**
 - `401` — `{ "message": "Invalid credentials" }`
@@ -98,7 +112,12 @@ Mendapatkan informasi pengguna yang sedang login.
   "user": {
     "id": "uuid",
     "email": "pengelola@pesantren.com",
-    "role": "user",
+    "role": "Pengguna Pesantren",
+    "akses": [
+      "pesantren.view_own",
+      "payments.view_current",
+      "..."
+    ],
     "statusAccount": "active",
     "statusPayment": "unpaid",
     "profileLevel": "basic",

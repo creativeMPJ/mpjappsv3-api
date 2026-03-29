@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PesantrenProfile;
 use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -11,12 +10,11 @@ class RoleController extends Controller
 {
     private function assertSuperAdmin()
     {
-        $user    = auth()->user();
-        $profile = PesantrenProfile::find($user->id);
-        if (!$profile || $profile->role !== 'admin_pusat') {
+        $user = auth()->user();
+        $role = $user->activeRole();
+        if (!$role || !$role->is_super_admin) {
             abort(403, 'Forbidden');
         }
-        return $profile;
     }
 
     public function index(Request $request)

@@ -23,12 +23,25 @@ class User extends Authenticatable implements JWTSubject
     {
         return [
             'email' => $this->email,
-            'role'  => $this->profile?->role ?? 'user',
+            'role'  => $this->activeRole()?->nama ?? 'Pengguna Pesantren',
         ];
+    }
+
+    public function activeRole(): ?Role
+    {
+        return $this->userRoles()
+            ->with('roleDetail')
+            ->orderBy('created_at', 'desc')
+            ->first()?->roleDetail;
     }
 
     public function profile()
     {
-        return $this->hasOne(PesantrenProfile::class, 'id');
+        return $this->hasOne(PesantrenProfile::class, 'user_id');
+    }
+
+    public function userRoles()
+    {
+        return $this->hasMany(UserRole::class, 'user_id');
     }
 }

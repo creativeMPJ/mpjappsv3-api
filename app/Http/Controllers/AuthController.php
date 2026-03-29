@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Crew;
 use App\Models\PasswordResetRequest;
 use App\Models\PesantrenProfile;
+use App\Models\Role;
 use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Http\Request;
@@ -46,9 +47,9 @@ class AuthController extends Controller
                 'password_hash' => Hash::make($data['password']),
             ]);
 
-            PesantrenProfile::create([
-                'id'             => $user->id,
-                'role'           => 'user',
+            $profile = PesantrenProfile::create([
+                'id'             => (string) Str::uuid(),
+                'user_id'        => $user->id,
                 'status_account' => 'active',
                 'nama_pesantren' => $data['namaPesantren'] ?? null,
                 'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
@@ -56,7 +57,7 @@ class AuthController extends Controller
 
             $crew = Crew::create([
                 'id'         => Str::uuid(),
-                'profile_id' => $user->id,
+                'profile_id' => $profile->id,
                 'nama'       => $data['namaPengasuh'] ?? 'Pengasuh',
                 'no_wa'      => $data['noWhatsapp'] ?? null,
             ]);
@@ -69,22 +70,24 @@ class AuthController extends Controller
             DB::table('user_roles')->insert([
                 'id'         => Str::uuid(),
                 'user_id'    => $user->id,
-                'role'       => 'user',
+                'role_id'    => Role::findByEnum('user')?->id,
                 'created_at' => now(),
             ]);
 
             return $user;
         });
 
-        $profile = PesantrenProfile::find($result->id);
-        $token = JWTAuth::fromUser($result);
+        $userRole = UserRole::where('user_id', $result->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+        $token    = JWTAuth::fromUser($result);
 
         return response()->json([
             'token' => $token,
             'user'  => [
-                'id'    => $result->id,
-                'email' => $result->email,
-                'role'  => $profile->role ?? 'user',
+                'id'           => $result->id,
+                'email'        => $result->email,
+                'role'         => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
+                'akses'        => $userRole?->roleDetail?->akses ?? [],
+                'isSuperAdmin' => $userRole?->roleDetail?->is_super_admin ?? false,
             ],
         ], 201);
     }
@@ -106,33 +109,39 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        $profile = PesantrenProfile::find($user->id);
-        $token   = JWTAuth::fromUser($user);
+        $userRole = UserRole::where('user_id', $user->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+        $token    = JWTAuth::fromUser($user);
 
         return response()->json([
             'token' => $token,
             'user'  => [
-                'id'    => $user->id,
-                'email' => $user->email,
-                'role'  => $profile->role ?? 'user',
+                'id'           => $user->id,
+                'email'        => $user->email,
+                'role'         => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
+                'akses'        => $userRole?->roleDetail?->akses ?? [],
+                'isSuperAdmin' => $userRole?->roleDetail?->is_super_admin ?? false,
             ],
         ]);
     }
 
     public function me(Request $request)
     {
-        $user    = auth()->user();
-        $profile = PesantrenProfile::find($user->id);
+        $user     = auth()->user();
+        $profile  = PesantrenProfile::where('user_id', $user->id)->first();
 
         if (!$profile) {
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        $userRole = UserRole::where('user_id', $user->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+
         return response()->json([
             'user' => [
                 'id'             => $user->id,
                 'email'          => $user->email,
-                'role'           => $profile->role ?? 'user',
+                'role'           => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
+                'akses'          => $userRole?->roleDetail?->akses ?? [],
+                'isSuperAdmin'   => $userRole?->roleDetail?->is_super_admin ?? false,
                 'statusAccount'  => $profile->status_account,
                 'statusPayment'  => $profile->status_payment ?? 'unpaid',
                 'profileLevel'   => $profile->profile_level ?? 'basic',

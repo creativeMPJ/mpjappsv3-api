@@ -23,14 +23,16 @@ Tokens are obtained via `POST /api/auth/login` or `POST /api/auth/register`.
 
 ## Roles
 
-| Role | Keterangan |
-|---|---|
-| `user` | Perwakilan pesantren / pengguna umum |
-| `admin_regional` | Admin wilayah |
-| `admin_pusat` | Admin pusat (superadmin) |
-| `admin_finance` | Admin keuangan |
-| `coordinator` | Koordinator |
-| `crew` | Anggota kru |
+| Role | Nama | Keterangan |
+|---|---|---|
+| `user` | Pengguna Pesantren | Perwakilan pesantren / pengguna umum |
+| `admin_regional` | Admin Wilayah | Admin wilayah |
+| `admin_pusat` | Admin Pusat | Admin pusat (superadmin) |
+| `admin_finance` | Admin Keuangan | Admin keuangan |
+| `coordinator` | Koordinator | Koordinator lintas wilayah |
+| `crew` | Kru Pesantren | Anggota kru pesantren |
+
+Setiap response login dan `/api/auth/me` menyertakan field `akses` — array permission yang dimiliki user sesuai rolenya. Lihat [roles.md](roles.md) untuk daftar lengkap permission per role.
 
 ## Standard Error Responses
 
@@ -57,6 +59,7 @@ Tokens are obtained via `POST /api/auth/login` or `POST /api/auth/register`.
 | [regional.md](regional.md) | `/api/regional` | Panel admin wilayah |
 | [admin.md](admin.md) | `/api/admin` | Panel admin pusat |
 | [events.md](events.md) | `/api/events` | Manajemen event |
+| [roles.md](roles.md) | `/api/roles` | Manajemen role & hak akses |
 
 ---
 

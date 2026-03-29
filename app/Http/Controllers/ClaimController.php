@@ -15,9 +15,10 @@ class ClaimController extends Controller
     public function pendingCount(Request $request)
     {
         $user    = auth()->user();
-        $profile = PesantrenProfile::find($user->id);
+        $role    = $user->activeRole();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$profile || $profile->role !== 'admin_regional' || !$profile->region_id) {
+        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
@@ -70,7 +71,7 @@ class ClaimController extends Controller
             $phone = trim(Crew::find($claimUser->reff_id)?->no_wa ?? '');
         }
         if (!$phone) {
-            $profile = PesantrenProfile::find($claim->user_id);
+            $profile = PesantrenProfile::where('user_id', $claim->user_id)->first();
             $phone   = trim($profile?->no_wa_pendaftar ?? '');
         }
 

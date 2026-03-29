@@ -11,8 +11,13 @@ class UserRole extends Model
     protected $keyType   = 'string';
     protected $table     = 'user_roles';
 
-    protected $fillable = ['id', 'user_id', 'role'];
+    protected $fillable = ['id', 'user_id', 'role_id'];
 
     const CREATED_AT = 'created_at';
     const UPDATED_AT = null;
+
+    public function roleDetail()
+    {
+        return $this->belongsTo(Role::class, 'role_id');
+    }
 }
