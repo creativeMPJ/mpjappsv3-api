@@ -10,39 +10,48 @@ class RoleSeeder extends Seeder
 {
     private function template(): array
     {
+        $off = ['view' => false, 'create' => false, 'update' => false, 'delete' => false];
+
         return [
-            'user-identitas'                     => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'user-administrasi'                  => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-administrasi'           => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'user-tim'                           => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'user-eid'                           => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'user-event'                         => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-manajemen-event'        => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-manajemen-event'     => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-validasi-pendaftar'  => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-finance-verifikasi'           => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-laporan-dokumentasi' => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-late-payment'        => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-download-center'     => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-finance-laporan'              => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-master-data'            => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-master-regional'        => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-data-master'         => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-finance-harga'                => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-finance-clearing'             => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-finance-regional-monitoring'  => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'super-admin-finance'                => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'user-hub'                           => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-mpj-hub'                => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-manajemen-militansi'    => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'super-admin-user-management'        => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'super-admin-hierarchy'              => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'super-admin-hak-akses'              => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'user-pengaturan'                    => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-pusat-pengaturan'             => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-regional-pengaturan'          => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'admin-finance-pengaturan'           => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
-            'super-admin-settings'               => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
+            // User / Admin Media
+            'identitas'                      => $off,
+            'pembayaran'                     => $off,
+            'tim'                            => $off,
+            'eid'                            => $off,
+            'hub'                            => $off,
+            'user-event'                     => $off,
+
+            // Admin Pusat
+            'administrasi'                   => $off,
+            'master-data'                    => $off,
+            'master-regional'                => $off,
+            'militansi'                      => $off,
+            'mpj-hub'                        => $off,
+            'admin-pusat-manajemen-event'    => $off,
+
+            // Admin Regional
+            'data-master'                    => $off,
+            'validasi-pendaftar'             => $off,
+            'laporan'                        => $off,
+            'late-payment'                   => $off,
+            'download-center'                => $off,
+            'admin-regional-manajemen-event' => $off,
+
+            // Admin Finance
+            'verifikasi'                     => $off,
+            'laporan-keuangan'               => $off,
+            'harga'                          => $off,
+            'clearing'                       => $off,
+            'regional-monitoring'            => $off,
+
+            // Super Admin
+            'user-management'                => $off,
+            'hierarchy'                      => $off,
+            'finance'                        => $off,
+            'hak-akses'                      => $off,
+
+            // Shared (satu key untuk semua role)
+            'pengaturan'                     => $off,
         ];
     }
 
@@ -60,66 +69,78 @@ class RoleSeeder extends Seeder
         $noDelete = ['view' => true, 'create' => true,  'update' => true,  'delete' => false];
 
         // ── Admin Pusat ─────────────────────────────────────────────────────
+        // Menu: Verifikasi, Data Regional, Kelola Event, MPJ Hub, Pengaturan
+        // + Super Admin keys
         $adminPusat = $this->template();
         $this->on($adminPusat, [
-            'admin-pusat-administrasi',
-            'admin-pusat-manajemen-event',
-            'admin-pusat-master-data',
-            'admin-pusat-master-regional',
-            'admin-pusat-mpj-hub',
-            'admin-pusat-manajemen-militansi',
-            'admin-pusat-pengaturan',
-            'super-admin-finance',
-            'super-admin-user-management',
-            'super-admin-hierarchy',
-            'super-admin-hak-akses',
-            'super-admin-settings',
+            'administrasi',           // Verifikasi
+            'master-regional',        // Data Regional
+            'admin-pusat-manajemen-event', // Kelola Event
+            'hub',                    // MPJ Hub
+            'pengaturan',
+            // Super Admin
+            'master-data',
+            'militansi',
+            'mpj-hub',
+            'finance',
+            'user-management',
+            'hierarchy',
+            'hak-akses',
         ], $full);
 
         // ── Admin Wilayah ───────────────────────────────────────────────────
+        // Menu: Verifikasi, Data Regional, Kelola Event, MPJ Hub, Pengaturan
         $adminWilayah = $this->template();
         $this->on($adminWilayah, [
-            'admin-regional-manajemen-event',
-            'admin-regional-validasi-pendaftar',
-            'admin-regional-laporan-dokumentasi',
-            'admin-regional-late-payment',
-            'admin-regional-download-center',
-            'admin-regional-data-master',
-            'admin-regional-pengaturan',
+            'validasi-pendaftar',            // Verifikasi
+            'data-master',                   // Data Regional
+            'laporan',                       // sub-fitur Data Regional
+            'late-payment',                  // sub-fitur Data Regional
+            'download-center',               // sub-fitur Data Regional
+            'admin-regional-manajemen-event', // Kelola Event
+            'hub',                           // MPJ Hub
+            'pengaturan',
         ], $full);
 
         // ── Admin Keuangan ──────────────────────────────────────────────────
+        // Menu: Verifikasi Pembayaran, Laporan, Harga, Clearing, Monitoring, Pengaturan
         $adminKeuangan = $this->template();
         $this->on($adminKeuangan, [
-            'admin-finance-verifikasi',
-            'admin-finance-laporan',
-            'admin-finance-harga',
-            'admin-finance-clearing',
-            'admin-finance-regional-monitoring',
-            'admin-finance-pengaturan',
+            'verifikasi',          // Verifikasi Pembayaran
+            'laporan-keuangan',    // Laporan
+            'harga',               // Harga
+            'clearing',            // Clearing
+            'regional-monitoring', // Monitoring Regional
+            'pengaturan',
         ], $full);
 
         // ── Koordinator ─────────────────────────────────────────────────────
         $koordinator = $this->template();
-        $this->on($koordinator, ['admin-regional-data-master', 'admin-regional-laporan-dokumentasi'], $viewOnly);
+        $this->on($koordinator, ['data-master', 'laporan'], $viewOnly);
         $this->on($koordinator, ['admin-regional-manajemen-event'], $noDelete);
 
-        // ── Pengguna Pesantren ──────────────────────────────────────────────
+        // ── Pengguna Pesantren (Admin Media) ────────────────────────────────
+        // Menu: E-ID Card, Profil Pesantren, Administrasi, Kelola Crew, Event, MPJ Hub, Pengaturan
         $penggunaPesantren = $this->template();
         $this->on($penggunaPesantren, [
-            'user-identitas',
-            'user-administrasi',
-            'user-tim',
-            'user-eid',
-            'user-event',
-            'user-hub',
-            'user-pengaturan',
+            'eid',         // E-ID Card
+            'identitas',   // Profil Pesantren
+            'pembayaran',  // Administrasi
+            'tim',         // Kelola Crew
+            'user-event',  // Event
+            'hub',         // MPJ Hub
+            'pengaturan',
         ], $full);
 
         // ── Kru Pesantren ───────────────────────────────────────────────────
+        // Menu: E-ID Card, Profil Crew, Militansi XP, Event, MPJ Hub, Pengaturan
         $kruPesantren = $this->template();
-        $this->on($kruPesantren, ['user-tim'], ['view' => true, 'create' => false, 'update' => true, 'delete' => false]);
+        $this->on($kruPesantren, ['eid'], $full);
+        $this->on($kruPesantren, ['tim'], ['view' => true, 'create' => false, 'update' => true, 'delete' => false]);
+        $this->on($kruPesantren, ['militansi'], $viewOnly);
         $this->on($kruPesantren, ['user-event'], $viewOnly);
+        $this->on($kruPesantren, ['hub'], $viewOnly);
+        $this->on($kruPesantren, ['pengaturan'], $full);
 
         // ── Seed ────────────────────────────────────────────────────────────
         $roles = [

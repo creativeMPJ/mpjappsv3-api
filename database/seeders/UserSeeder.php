@@ -17,7 +17,7 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         $users = [
-            ['email' => 'admin@gmail.com',       'role' => 'admin_pusat',    'status_account' => 'active'],
+            ['email' => 'admin@gmail.com',       'role' => 'admin_pusat',    'status_account' => 'active', 'profile_level' => 'platinum'],
             ['email' => 'pusat@mpj.id',           'role' => 'admin_pusat',    'status_account' => 'active'],
             ['email' => 'finance@mpj.id',         'role' => 'admin_finance',  'status_account' => 'active'],
             ['email' => 'regional@mpj.id',        'role' => 'admin_regional', 'status_account' => 'active'],
@@ -41,7 +41,11 @@ class UserSeeder extends Seeder
 
             $profile = PesantrenProfile::firstOrCreate(
                 ['user_id' => $user->id],
-                array_merge(['id' => (string) Str::uuid(), 'status_account' => $data['status_account']], $extra)
+                array_merge([
+                    'id'            => (string) Str::uuid(),
+                    'status_account' => $data['status_account'],
+                    'profile_level'  => $data['profile_level'] ?? 'basic',
+                ], $extra)
             );
 
             // Assign role via user_roles
