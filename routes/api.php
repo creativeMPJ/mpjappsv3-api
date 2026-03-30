@@ -10,6 +10,7 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicController;
 use App\Http\Controllers\RegionalController;
+use App\Http\Controllers\RoleController;
 use Illuminate\Support\Facades\Route;
 
 // ── Health check ─────────────────────────────────────────────────────
@@ -221,6 +222,15 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/pricing-packages',                   [AdminController::class, 'createPricingPackage']);
         Route::put('/pricing-packages/{id}',               [AdminController::class, 'updatePricingPackage']);
         Route::patch('/pricing-packages/{id}/toggle',      [AdminController::class, 'togglePricingPackage']);
+    });
+
+    // ── Roles (Hak Akses) ─────────────────────────────────────────────
+    Route::prefix('roles')->group(function () {
+        Route::get('/',       [RoleController::class, 'index']);
+        Route::get('/{id}',   [RoleController::class, 'show']);
+        Route::post('/',      [RoleController::class, 'store']);
+        Route::put('/{id}',   [RoleController::class, 'update']);
+        Route::delete('/{id}',[RoleController::class, 'destroy']);
     });
 
     // ── Finance ───────────────────────────────────────────────────────

@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Crew;
 use App\Models\OtpVerification;
 use App\Models\PesantrenClaim;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -13,9 +15,10 @@ class ClaimController extends Controller
     public function pendingCount(Request $request)
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $role    = $user->activeRole();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$profile || $profile->role !== 'admin_regional' || !$profile->region_id) {
+        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
@@ -61,8 +64,16 @@ class ClaimController extends Controller
 
         if (!$claim) return response()->json(['message' => 'Claim tidak ditemukan'], 404);
 
-        $profile = Profile::find($claim->user_id);
-        $phone   = trim($profile?->no_wa_pendaftar ?? '');
+        // Ambil nomor WA: untuk role user dari crew, untuk admin dari profil
+        $claimUser = User::find($claim->user_id);
+        $phone     = '';
+        if ($claimUser && $claimUser->reff_type === 'crew' && $claimUser->reff_id) {
+            $phone = trim(Crew::find($claimUser->reff_id)?->no_wa ?? '');
+        }
+        if (!$phone) {
+            $profile = PesantrenProfile::where('user_id', $claim->user_id)->first();
+            $phone   = trim($profile?->no_wa_pendaftar ?? '');
+        }
 
         if (!$phone) {
             return response()->json(['message' => 'Nomor WhatsApp tidak tersedia untuk akun ini'], 400);
@@ -156,7 +167,7 @@ class ClaimController extends Controller
         $adminPhone = '6281234567890';
 
         if ($claim->region_id) {
-            $regionalAdmin = Profile::where('role', 'admin_regional')
+            $regionalAdmin = PesantrenProfile::where('role', 'admin_regional')
                 ->where('region_id', $claim->region_id)
                 ->whereNotNull('no_wa_pendaftar')
                 ->orderBy('updated_at', 'desc')

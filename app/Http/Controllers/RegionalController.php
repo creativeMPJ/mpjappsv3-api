@@ -7,7 +7,7 @@ use App\Models\FollowUpLog;
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PricingPackage;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\Region;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,9 +18,10 @@ class RegionalController extends Controller
     private function assertRegional()
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $role    = $user->activeRole();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$profile || $profile->role !== 'admin_regional' || !$profile->region_id) {
+        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
 
@@ -31,7 +32,7 @@ class RegionalController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        $profiles = Profile::where('region_id', $regionId)
+        $profiles = PesantrenProfile::where('region_id', $regionId)
             ->orderBy('nama_pesantren')
             ->get(['id', 'nama_pesantren', 'nama_pengasuh', 'status_account', 'status_payment', 'profile_level', 'no_wa_pendaftar', 'nip']);
 
@@ -90,7 +91,6 @@ class RegionalController extends Controller
                 'nama_pengasuh'    => $c->profile?->nama_pengasuh,
                 'alamat_singkat'   => $c->profile?->alamat_singkat,
                 'no_wa_pendaftar'  => $c->profile?->no_wa_pendaftar,
-                'niam'             => $c->profile?->niam,
                 'is_alumni'        => $c->profile?->is_alumni,
                 'alamat_lengkap'   => $c->profile?->alamat_lengkap,
                 'desa'             => $c->profile?->desa,
@@ -156,7 +156,7 @@ class RegionalController extends Controller
             ]);
 
             if ($claim->jenis_pengajuan === 'klaim') {
-                Profile::where('id', $claim->user_id)->update(['status_account' => 'active']);
+                PesantrenProfile::where('id', $claim->user_id)->update(['status_account' => 'active']);
             } else {
                 $existingPayment = Payment::where('pesantren_claim_id', $claim->id)->first();
 
@@ -219,7 +219,7 @@ class RegionalController extends Controller
                 'notes'  => $data['reason'],
             ]);
 
-            Profile::where('id', $claim->user_id)->update(['status_account' => 'rejected']);
+            PesantrenProfile::where('id', $claim->user_id)->update(['status_account' => 'rejected']);
         });
 
         return response()->json(['success' => true]);
@@ -285,7 +285,7 @@ class RegionalController extends Controller
             ->whereIn('status', ['approved', 'pusat_approved'])
             ->count();
 
-        $paidProfiles = Profile::where('region_id', $regionId)
+        $paidProfiles = PesantrenProfile::where('region_id', $regionId)
             ->where('status_payment', 'paid')
             ->count();
 
@@ -327,7 +327,7 @@ class RegionalController extends Controller
                 ->whereIn('status', ['approved', 'pusat_approved'])
                 ->count();
 
-            $paid = Profile::where('region_id', $r->id)
+            $paid = PesantrenProfile::where('region_id', $r->id)
                 ->where('status_payment', 'paid')
                 ->count();
 

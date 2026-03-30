@@ -11,7 +11,7 @@ class User extends Authenticatable implements JWTSubject
     public $incrementing = false;
     public $timestamps = false;
 
-    protected $fillable = ['id', 'email', 'password_hash'];
+    protected $fillable = ['id', 'email', 'password_hash', 'reff_type', 'reff_id'];
     protected $hidden = ['password_hash'];
 
     public function getJWTIdentifier()
@@ -23,12 +23,25 @@ class User extends Authenticatable implements JWTSubject
     {
         return [
             'email' => $this->email,
-            'role'  => $this->profile?->role ?? 'user',
+            'role'  => $this->activeRole()?->nama ?? 'Pengguna Pesantren',
         ];
+    }
+
+    public function activeRole(): ?Role
+    {
+        return $this->userRoles()
+            ->with('roleDetail')
+            ->orderBy('created_at', 'desc')
+            ->first()?->roleDetail;
     }
 
     public function profile()
     {
-        return $this->hasOne(Profile::class, 'id');
+        return $this->hasOne(PesantrenProfile::class, 'user_id');
+    }
+
+    public function userRoles()
+    {
+        return $this->hasMany(UserRole::class, 'user_id');
     }
 }

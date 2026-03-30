@@ -19,7 +19,7 @@ class PesantrenClaim extends Model
 
     public function profile()
     {
-        return $this->belongsTo(Profile::class, 'user_id');
+        return $this->belongsTo(PesantrenProfile::class, 'user_id');
     }
 
     public function region()

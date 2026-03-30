@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Crew;
 use App\Models\PasswordResetRequest;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
+use App\Models\Role;
 use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
@@ -22,9 +25,10 @@ class AuthController extends Controller
             'namaPesantren' => [
                 'nullable',
                 'string',
-                Rule::unique('profiles', 'nama_pesantren')->whereNotNull('nama_pesantren'),
+                Rule::unique('pesantren_profiles', 'nama_pesantren')->whereNotNull('nama_pesantren'),
             ],
             'namaPengasuh'  => 'nullable|string',
+            'noWhatsapp'    => 'nullable|string',
         ], [
             'email.required'        => 'Email wajib diisi.',
             'email.email'           => 'Format email tidak valid.',
@@ -36,36 +40,54 @@ class AuthController extends Controller
 
         $email = strtolower($data['email']);
 
-        $user = User::create([
-            'id'            => Str::uuid(),
-            'email'         => $email,
-            'password_hash' => Hash::make($data['password']),
-        ]);
+        $result = DB::transaction(function () use ($data, $email) {
+            $user = User::create([
+                'id'            => Str::uuid(),
+                'email'         => $email,
+                'password_hash' => Hash::make($data['password']),
+            ]);
 
-        Profile::create([
-            'id'             => $user->id,
-            'role'           => 'user',
-            'status_account' => 'active',
-            'nama_pesantren' => $data['namaPesantren'] ?? null,
-            'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
-        ]);
+            $profile = PesantrenProfile::create([
+                'id'             => (string) Str::uuid(),
+                'user_id'        => $user->id,
+                'status_account' => 'active',
+                'nama_pesantren' => $data['namaPesantren'] ?? null,
+                'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
+            ]);
 
-        \DB::table('user_roles')->insert([
-            'id'         => Str::uuid(),
-            'user_id'    => $user->id,
-            'role'       => 'user',
-            'created_at' => now(),
-        ]);
+            $crew = Crew::create([
+                'id'         => Str::uuid(),
+                'profile_id' => $profile->id,
+                'nama'       => $data['namaPengasuh'] ?? 'Pengasuh',
+                'no_wa'      => $data['noWhatsapp'] ?? null,
+            ]);
 
-        $profile = Profile::find($user->id);
-        $token = JWTAuth::fromUser($user);
+            User::where('id', $user->id)->update([
+                'reff_type' => 'crew',
+                'reff_id'   => $crew->id,
+            ]);
+
+            DB::table('user_roles')->insert([
+                'id'         => Str::uuid(),
+                'user_id'    => $user->id,
+                'role_id'    => Role::findByEnum('user')?->id,
+                'created_at' => now(),
+            ]);
+
+            return $user;
+        });
+
+        $userRole = UserRole::where('user_id', $result->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+        $token    = JWTAuth::fromUser($result);
 
         return response()->json([
             'token' => $token,
             'user'  => [
-                'id'    => $user->id,
-                'email' => $user->email,
-                'role'  => $profile->role ?? 'user',
+                'id'           => $result->id,
+                'email'        => $result->email,
+                'role'         => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
+                'akses'        => $userRole?->roleDetail?->akses ?? [],
+                'isSuperAdmin' => $userRole?->roleDetail?->is_super_admin ?? false,
             ],
         ], 201);
     }
@@ -87,33 +109,39 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        $profile = Profile::find($user->id);
-        $token   = JWTAuth::fromUser($user);
+        $userRole = UserRole::where('user_id', $user->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+        $token    = JWTAuth::fromUser($user);
 
         return response()->json([
             'token' => $token,
             'user'  => [
-                'id'    => $user->id,
-                'email' => $user->email,
-                'role'  => $profile->role ?? 'user',
+                'id'           => $user->id,
+                'email'        => $user->email,
+                'role'         => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
+                'akses'        => $userRole?->roleDetail?->akses ?? [],
+                'isSuperAdmin' => $userRole?->roleDetail?->is_super_admin ?? false,
             ],
         ]);
     }
 
     public function me(Request $request)
     {
-        $user    = auth()->user();
-        $profile = Profile::find($user->id);
+        $user     = auth()->user();
+        $profile  = PesantrenProfile::where('user_id', $user->id)->first();
 
         if (!$profile) {
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        $userRole = UserRole::where('user_id', $user->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+
         return response()->json([
             'user' => [
                 'id'             => $user->id,
                 'email'          => $user->email,
-                'role'           => $profile->role ?? 'user',
+                'role'           => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
+                'akses'          => $userRole?->roleDetail?->akses ?? [],
+                'isSuperAdmin'   => $userRole?->roleDetail?->is_super_admin ?? false,
                 'statusAccount'  => $profile->status_account,
                 'statusPayment'  => $profile->status_payment ?? 'unpaid',
                 'profileLevel'   => $profile->profile_level ?? 'basic',

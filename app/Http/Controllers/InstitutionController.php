@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Crew;
 use App\Models\PesantrenClaim;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\Regency;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -75,16 +76,19 @@ class InstitutionController extends Controller
         $region = $regency->regions()->first();
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $regency, $region) {
-            Profile::where('id', $user->id)->update([
+            PesantrenProfile::where('id', $user->id)->update([
                 'role'           => 'user',
                 'nama_pesantren' => $data['namaPesantren'],
                 'nama_pengasuh'  => $data['namaPengasuh'],
                 'alamat_singkat' => $data['alamatLengkap'],
                 'regency_id'     => $regency->id,
                 'region_id'      => $region?->id,
-                'no_wa_pendaftar'=> $data['noWhatsapp'],
                 'status_account' => 'pending',
             ]);
+
+            if ($user->reff_type === 'crew' && $user->reff_id) {
+                Crew::where('id', $user->reff_id)->update(['no_wa' => $data['noWhatsapp']]);
+            }
 
             $existing = PesantrenClaim::where('user_id', $user->id)->first();
 
@@ -126,7 +130,7 @@ class InstitutionController extends Controller
             'longitude' => 'nullable|numeric',
         ]);
 
-        Profile::where('id', $user->id)->update(array_filter([
+        PesantrenProfile::where('id', $user->id)->update(array_filter([
             'latitude'  => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
         ], fn($v) => $v !== null));

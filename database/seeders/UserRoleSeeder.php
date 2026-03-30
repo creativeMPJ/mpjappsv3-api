@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Role;
 use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Database\Seeder;
@@ -21,15 +22,17 @@ class UserRoleSeeder extends Seeder
             'testuser99@test.com'  => 'user',
         ];
 
-        foreach ($userRoles as $email => $role) {
+        foreach ($userRoles as $email => $roleEnum) {
             $user = User::where('email', $email)->first();
 
             if (!$user) {
                 continue;
             }
 
+            $roleModel = Role::findByEnum($roleEnum);
+
             $alreadyExists = UserRole::where('user_id', $user->id)
-                ->where('role', $role)
+                ->where('role_id', $roleModel?->id)
                 ->exists();
 
             if ($alreadyExists) {
@@ -39,7 +42,7 @@ class UserRoleSeeder extends Seeder
             UserRole::create([
                 'id'      => (string) Str::uuid(),
                 'user_id' => $user->id,
-                'role'    => $role,
+                'role_id' => $roleModel?->id,
             ]);
         }
     }

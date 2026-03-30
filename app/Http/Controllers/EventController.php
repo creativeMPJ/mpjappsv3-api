@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Event;
 use App\Models\EventReport;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\Region;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -14,8 +14,10 @@ class EventController extends Controller
     private function assertRegional()
     {
         $user    = auth()->user();
-        $profile = Profile::find($user->id);
-        if (!$profile || $profile->role !== 'admin_regional' || !$profile->region_id) {
+        $role    = $user->activeRole();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
         return $profile->region_id;
