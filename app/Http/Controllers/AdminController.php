@@ -12,6 +12,7 @@ use App\Models\Regency;
 use App\Models\Region;
 use App\Models\Role;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -1027,6 +1028,38 @@ class AdminController extends Controller
                 'nip'            => $generatedNip,
                 'nama_pesantren' => $payment->claim->pesantren_name,
             ]);
+
+            // Generate NIAM untuk crew awal saat NIP diterbitkan
+            $profileUser = User::where('id', function ($q) use ($payment) {
+                $q->select('user_id')->from('pesantren_profiles')->where('id', $payment->user_id);
+            })->first();
+
+            if ($profileUser?->reff_type === 'crew' && $profileUser->reff_id) {
+                $crew = Crew::find($profileUser->reff_id);
+                if ($crew && !$crew->niam) {
+                    $jabatanCodeId = $crew->jabatan_code_id;
+
+                    // Jika belum punya jabatan_code_id tapi jabatannya Koordinator, cari kodenya
+                    if (!$jabatanCodeId && $crew->jabatan) {
+                        $foundCode = JabatanCode::whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($crew->jabatan) . '%'])->first();
+                        if ($foundCode) {
+                            $jabatanCodeId = $foundCode->id;
+                            $crew->update(['jabatan_code_id' => $jabatanCodeId]);
+                        }
+                    }
+
+                    if ($jabatanCodeId) {
+                        $jabatanCode = JabatanCode::find($jabatanCodeId);
+                        $crewSeq     = Crew::where('jabatan_code_id', $jabatanCodeId)
+                            ->whereHas('profile', fn($q) => $q->where('region_id', $payment->claim->region_id))
+                            ->count();
+                        $niam = $jabatanCode->code . $generatedNip . str_pad($crewSeq + 1, 2, '0', STR_PAD_LEFT);
+                    } else {
+                        $niam = $generatedNip . '01';
+                    }
+                    $crew->update(['niam' => $niam]);
+                }
+            }
 
             return $generatedNip;
         });

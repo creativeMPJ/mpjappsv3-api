@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Crew;
+use App\Models\JabatanCode;
 use App\Models\PasswordResetRequest;
 use App\Models\PesantrenProfile;
 use App\Models\Role;
@@ -55,11 +56,15 @@ class AuthController extends Controller
                 'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
             ]);
 
+            $jabatanCode = JabatanCode::whereRaw('LOWER(name) LIKE ?', ['%koordinator%'])->first();
+
             $crew = Crew::create([
-                'id'         => Str::uuid(),
-                'profile_id' => $profile->id,
-                'nama'       => $data['namaPengasuh'] ?? 'Pengasuh',
-                'no_wa'      => $data['noWhatsapp'] ?? null,
+                'id'              => Str::uuid(),
+                'profile_id'      => $profile->id,
+                'nama'            => $data['namaPengasuh'] ?? 'Pengasuh',
+                'jabatan'         => 'Koordinator',
+                'jabatan_code_id' => $jabatanCode?->id,
+                'no_wa'           => $data['noWhatsapp'] ?? null,
             ]);
 
             User::where('id', $user->id)->update([

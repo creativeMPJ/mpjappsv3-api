@@ -155,8 +155,10 @@ class RegionalController extends Controller
                 'notes'                => null,
             ]);
 
+            PesantrenProfile::where('id', $claim->user_id)->update(['status_account' => 'active']);
+
             if ($claim->jenis_pengajuan === 'klaim') {
-                PesantrenProfile::where('id', $claim->user_id)->update(['status_account' => 'active']);
+                // klaim: cukup aktifkan, tidak perlu payment
             } else {
                 $existingPayment = Payment::where('pesantren_claim_id', $claim->id)->first();
 

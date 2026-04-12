@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
+use App\Models\PesantrenProfile;
 use App\Models\SystemSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -12,10 +13,14 @@ class PaymentController extends Controller
 {
     public function current(Request $request)
     {
-        $user  = auth()->user();
-        $claim = PesantrenClaim::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        $claim = $profile
+            ? PesantrenClaim::where('user_id', $profile->id)
+                ->orderBy('created_at', 'desc')
+                ->first()
+            : null;
 
         if (!$claim) {
             return response()->json(['accessDeniedReason' => 'Anda belum mendaftarkan pesantren.']);
@@ -30,7 +35,7 @@ class PaymentController extends Controller
         }
 
         if (in_array($claim->status, ['approved', 'pusat_approved'])) {
-            return response()->json(['redirectTo' => '/user']);
+            return response()->json(['redirectTo' => '/cms']);
         }
 
         if ($claim->status !== 'regional_approved') {
@@ -44,7 +49,7 @@ class PaymentController extends Controller
         $bankAccountNumber = SystemSetting::getValue('bank_account_number', '7171234567890');
         $bankAccountName   = SystemSetting::getValue('bank_account_name', 'MEDIA PONDOK JAWA TIMUR');
 
-        $payment = Payment::where('user_id', $user->id)
+        $payment = Payment::where('user_id', $profile->id)
             ->where('pesantren_claim_id', $claim->id)
             ->orderBy('created_at', 'desc')
             ->first();
@@ -53,7 +58,7 @@ class PaymentController extends Controller
             $uniqueCode = random_int(100, 999);
             $payment = Payment::create([
                 'id'                 => Str::uuid(),
-                'user_id'            => $user->id,
+                'user_id'            => $profile->id,
                 'pesantren_claim_id' => $claim->id,
                 'base_amount'        => $baseAmount,
                 'unique_code'        => $uniqueCode,
@@ -71,7 +76,7 @@ class PaymentController extends Controller
 
         if ($payment->status === 'verified') {
             return response()->json([
-                'redirectTo' => '/user',
+                'redirectTo' => '/cms',
                 'payment'    => ['id' => $payment->id, 'status' => $payment->status, 'rejectionReason' => null],
             ]);
         }
@@ -101,10 +106,14 @@ class PaymentController extends Controller
 
     public function summary(Request $request)
     {
-        $user  = auth()->user();
-        $claim = PesantrenClaim::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        $claim = $profile
+            ? PesantrenClaim::where('user_id', $profile->id)
+                ->orderBy('created_at', 'desc')
+                ->first()
+            : null;
 
         if (!$claim) {
             return response()->json([
@@ -113,7 +122,7 @@ class PaymentController extends Controller
             ]);
         }
 
-        $payment = Payment::where('user_id', $user->id)
+        $payment = Payment::where('user_id', $profile->id)
             ->where('pesantren_claim_id', $claim->id)
             ->orderBy('created_at', 'desc')
             ->first();
@@ -139,7 +148,8 @@ class PaymentController extends Controller
 
     public function submitProof(Request $request)
     {
-        $user = auth()->user();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
         $request->validate([
             'paymentId'  => 'required|uuid',
@@ -148,7 +158,7 @@ class PaymentController extends Controller
         ]);
 
         $payment = Payment::where('id', $request->paymentId)
-            ->where('user_id', $user->id)
+            ->where('user_id', $profile?->id)
             ->first();
 
         if (!$payment) return response()->json(['message' => 'Pembayaran tidak ditemukan'], 404);
@@ -158,9 +168,9 @@ class PaymentController extends Controller
         $file->storeAs('payment-proofs/' . $user->id, time() . '.' . $file->getClientOriginalExtension(), 'public');
 
         $payment->update([
-            'proof_file_url'  => '/uploads/' . $relativePath,
-            'status'          => 'pending_verification',
-            'rejection_reason'=> null,
+            'proof_file_url'   => '/uploads/' . $relativePath,
+            'status'           => 'pending_verification',
+            'rejection_reason' => null,
         ]);
 
         return response()->json(['success' => true]);

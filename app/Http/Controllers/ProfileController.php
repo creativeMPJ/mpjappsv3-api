@@ -10,7 +10,7 @@ class ProfileController extends Controller
     public function getPesantren(Request $request)
     {
         $user    = auth()->user();
-        $profile = PesantrenProfile::with(['region', 'regency'])->find($user->id);
+        $profile = PesantrenProfile::with(['region', 'regency'])->where('user_id', $user->id)->first();
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);
@@ -52,7 +52,7 @@ class ProfileController extends Controller
     public function updatePesantren(Request $request)
     {
         $user    = auth()->user();
-        $profile = PesantrenProfile::find($user->id);
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);
