@@ -18,10 +18,15 @@ class PublicController extends Controller
         return response()->json(['regions' => $regions]);
     }
 
-    public function cities()
+    public function cities(Request $request)
     {
-        $cities = Regency::orderBy('name')->get(['id', 'name', 'province_id']);
-        return response()->json(['cities' => $cities]);
+        $query = Regency::orderBy('name');
+
+        if ($request->filled('province_id')) {
+            $query->where('province_id', $request->province_id);
+        }
+
+        return response()->json(['cities' => $query->get(['id', 'name', 'province_id'])]);
     }
 
     public function cityRegion(Request $request, string $id)

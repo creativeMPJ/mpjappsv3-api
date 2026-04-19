@@ -29,6 +29,7 @@ class AuthController extends Controller
                 Rule::unique('pesantren_profiles', 'nama_pesantren')->whereNotNull('nama_pesantren'),
             ],
             'namaPengasuh'  => 'nullable|string',
+            'namaPengelola' => 'nullable|string',
             'noWhatsapp'    => 'nullable|string',
         ], [
             'email.required'        => 'Email wajib diisi.',
@@ -61,7 +62,7 @@ class AuthController extends Controller
             $crew = Crew::create([
                 'id'              => Str::uuid(),
                 'profile_id'      => $profile->id,
-                'nama'            => $data['namaPengasuh'] ?? 'Pengasuh',
+                'nama'            => $data['namaPengelola'] ?? 'Pengelola',
                 'jabatan'         => 'Koordinator',
                 'jabatan_code_id' => $jabatanCode?->id,
                 'no_wa'           => $data['noWhatsapp'] ?? null,
