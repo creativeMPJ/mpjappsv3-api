@@ -21,7 +21,7 @@ class RegionalController extends Controller
         $role    = $user->activeRole();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
+        if (!$role || $role->nama !== 'Admin Regional' || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
 
