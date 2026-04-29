@@ -19,7 +19,7 @@ class Role extends Model
 
     private static array $enumMap = [
         'admin_pusat'    => 'Admin Pusat',
-        'admin_regional' => 'Admin Wilayah',
+        'admin_regional' => 'Admin Regional',
         'admin_finance'  => 'Admin Keuangan',
         'coordinator'    => 'Koordinator',
         'user'           => 'Pengguna Pesantren',

@@ -168,7 +168,7 @@ class AdminController extends Controller
         $this->assertPusat();
 
         $admins = Crew::with(['profile' => fn($q) => $q->with(['region:id,name', 'user.userRoles' => fn($q2) => $q2->with('roleDetail')->orderBy('created_at', 'desc')])])
-            ->whereHas('profile.user.userRoles.roleDetail', fn($q) => $q->whereIn('nama', ['Admin Pusat', 'Admin Wilayah', 'Admin Keuangan']))
+            ->whereHas('profile.user.userRoles.roleDetail', fn($q) => $q->whereIn('nama', ['Admin Pusat', 'Admin Regional', 'Admin Keuangan']))
             ->get();
 
         $regions = Region::orderBy('name')->get(['id', 'name']);
@@ -234,7 +234,7 @@ class AdminController extends Controller
             if ($data['role'] === 'admin_regional' && !empty($data['regionId'])) {
                 $oldAdmins = PesantrenProfile::where('region_id', $data['regionId'])
                     ->where('id', '!=', $data['profileId'])
-                    ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Wilayah'))
+                    ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Regional'))
                     ->get();
                 foreach ($oldAdmins as $old) {
                     $this->upsertUserRole($old->user_id, 'user');
@@ -825,7 +825,7 @@ class AdminController extends Controller
             ->count();
         $pesantrenCount = PesantrenProfile::where('region_id', $id)->whereNotNull('nama_pesantren')->count();
         $adminCount   = PesantrenProfile::where('region_id', $id)
-            ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Wilayah'))
+            ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Regional'))
             ->count();
         $recentProfiles = PesantrenProfile::where('region_id', $id)
             ->whereNotNull('nama_pesantren')
