@@ -145,7 +145,7 @@ class RoleSeeder extends Seeder
         // ── Seed ────────────────────────────────────────────────────────────
         $roles = [
             ['nama' => 'Admin Pusat',         'is_super_admin' => true,  'akses' => $adminPusat],
-            ['nama' => 'Admin Wilayah',        'is_super_admin' => false, 'akses' => $adminWilayah],
+            ['nama' => 'Admin Regional',        'is_super_admin' => false, 'akses' => $adminWilayah],
             ['nama' => 'Admin Keuangan',       'is_super_admin' => false, 'akses' => $adminKeuangan],
             ['nama' => 'Koordinator',          'is_super_admin' => false, 'akses' => $koordinator],
             ['nama' => 'Pengguna Pesantren',   'is_super_admin' => false, 'akses' => $penggunaPesantren],
