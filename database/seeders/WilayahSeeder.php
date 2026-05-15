@@ -36,11 +36,9 @@ class WilayahSeeder extends Seeder
 
     private function executeSqlDump(string $sql): void
     {
-        DB::beginTransaction();
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
 
         try {
-            DB::statement('SET FOREIGN_KEY_CHECKS=0');
-
             $buffer = '';
             $inSingleQuote = false;
             $inDoubleQuote = false;
@@ -70,12 +68,8 @@ class WilayahSeeder extends Seeder
             if ($remainder !== '') {
                 $this->executeStatement($remainder);
             }
-
+        } finally {
             DB::statement('SET FOREIGN_KEY_CHECKS=1');
-            DB::commit();
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            throw $e;
         }
     }
 
