@@ -19,6 +19,7 @@ return new class extends Migration {
         }
 
         if (Schema::hasTable('payments')) {
+            DB::statement("ALTER TABLE payments MODIFY status VARCHAR(32) NOT NULL");
             DB::table('payments')->where('status', 'pending_payment')->update(['status' => 'pending']);
             DB::table('payments')->where('status', 'pending_verification')->update(['status' => 'waiting_verification']);
 
