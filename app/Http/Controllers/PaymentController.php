@@ -6,6 +6,7 @@ use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
 use App\Models\SystemSetting;
+use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -50,36 +51,59 @@ class PaymentController extends Controller
         $bankAccountName   = SystemSetting::getValue('bank_account_name', 'MEDIA PONDOK JAWA TIMUR');
 
         $payment = Payment::where('user_id', $profile->id)
-            ->where('pesantren_claim_id', $claim->id)
+            ->where('payment_type', FinanceActivationService::TYPE_INSTITUTION_ACTIVATION)
+            ->where('reference_type', FinanceActivationService::REFERENCE_PROFILE)
+            ->where('reference_id', $profile->id)
             ->orderBy('created_at', 'desc')
             ->first();
 
         if (!$payment) {
-            $uniqueCode = random_int(100, 999);
-            $payment = Payment::create([
-                'id'                 => Str::uuid(),
-                'user_id'            => $profile->id,
-                'pesantren_claim_id' => $claim->id,
-                'base_amount'        => $baseAmount,
-                'unique_code'        => $uniqueCode,
-                'total_amount'       => $baseAmount + $uniqueCode,
-                'status'             => 'pending_payment',
-            ]);
+            $payment = FinanceActivationService::ensureInstitutionActivationInvoice($profile, $claim);
         }
 
-        if ($payment->status === 'pending_verification') {
+        $normalizedStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+        if ($normalizedStatus === FinanceActivationService::STATUS_WAITING_VERIFICATION) {
             return response()->json([
                 'redirectTo' => '/payment-pending',
-                'payment'    => ['id' => $payment->id, 'status' => $payment->status, 'rejectionReason' => $payment->rejection_reason],
+                'payment'    => [
+                    'id' => $payment->id,
+                    'status' => $normalizedStatus,
+                    'rejectionReason' => $payment->rejection_reason,
+                    'paymentType' => $payment->payment_type,
+                    'invoiceNumber' => $payment->invoice_number,
+                    'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
+                ],
             ]);
         }
 
-        if ($payment->status === 'verified') {
+        if ($normalizedStatus === FinanceActivationService::STATUS_VERIFIED) {
             return response()->json([
                 'redirectTo' => '/cms',
-                'payment'    => ['id' => $payment->id, 'status' => $payment->status, 'rejectionReason' => null],
+                'payment'    => [
+                    'id' => $payment->id,
+                    'status' => $normalizedStatus,
+                    'rejectionReason' => null,
+                    'paymentType' => $payment->payment_type,
+                    'invoiceNumber' => $payment->invoice_number,
+                    'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
+                ],
             ]);
         }
+
+        $crewInvoices = Payment::where('user_id', $profile->id)
+            ->where('payment_type', FinanceActivationService::TYPE_CREW_ACTIVATION)
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn($invoice) => [
+                'id' => $invoice->id,
+                'status' => FinanceActivationService::normalizePaymentStatus($invoice->status),
+                'paymentType' => $invoice->payment_type,
+                'referenceId' => $invoice->reference_id,
+                'invoiceNumber' => $invoice->invoice_number,
+                'totalAmount' => $invoice->total_amount,
+                'rejectionReason' => $invoice->rejection_reason,
+            ]);
 
         return response()->json([
             'payment' => [
@@ -87,8 +111,11 @@ class PaymentController extends Controller
                 'baseAmount'      => $payment->base_amount,
                 'uniqueCode'      => $payment->unique_code,
                 'totalAmount'     => $payment->total_amount,
-                'status'          => $payment->status,
+                'status'          => $normalizedStatus,
                 'rejectionReason' => $payment->rejection_reason,
+                'paymentType'     => $payment->payment_type,
+                'invoiceNumber'   => $payment->invoice_number,
+                'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
             ],
             'claim'   => [
                 'id'               => $claim->id,
@@ -96,6 +123,7 @@ class PaymentController extends Controller
                 'jenis_pengajuan'  => $claim->jenis_pengajuan,
                 'status'           => $claim->status,
             ],
+            'crewInvoices' => $crewInvoices,
             'bankInfo' => [
                 'bank'          => (string) $bankName,
                 'accountNumber' => (string) $bankAccountNumber,
@@ -123,26 +151,47 @@ class PaymentController extends Controller
         }
 
         $payment = Payment::where('user_id', $profile->id)
-            ->where('pesantren_claim_id', $claim->id)
+            ->where('payment_type', FinanceActivationService::TYPE_INSTITUTION_ACTIVATION)
+            ->where('reference_type', FinanceActivationService::REFERENCE_PROFILE)
+            ->where('reference_id', $profile->id)
             ->orderBy('created_at', 'desc')
             ->first();
 
+        if (!$payment && $claim->status === 'regional_approved') {
+            $payment = FinanceActivationService::ensureInstitutionActivationInvoice($profile, $claim);
+        }
+
         if (!$payment) {
             return response()->json([
-                'paymentStatus' => 'pending_payment',
+                'paymentStatus' => FinanceActivationService::STATUS_PENDING,
                 'payment'       => null,
             ]);
         }
 
+        $crewInvoices = Payment::where('user_id', $profile->id)
+            ->where('payment_type', FinanceActivationService::TYPE_CREW_ACTIVATION)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
         return response()->json([
-            'paymentStatus' => $payment->status,
+            'paymentStatus' => FinanceActivationService::normalizePaymentStatus($payment->status),
             'payment'       => [
                 'id'              => $payment->id,
                 'baseAmount'      => $payment->base_amount,
                 'uniqueCode'      => $payment->unique_code,
                 'totalAmount'     => $payment->total_amount,
+                'status'          => FinanceActivationService::normalizePaymentStatus($payment->status),
                 'rejectionReason' => $payment->rejection_reason,
             ],
+            'crewInvoices' => $crewInvoices->map(fn($invoice) => [
+                'id' => $invoice->id,
+                'status' => FinanceActivationService::normalizePaymentStatus($invoice->status),
+                'paymentType' => $invoice->payment_type,
+                'referenceId' => $invoice->reference_id,
+                'invoiceNumber' => $invoice->invoice_number,
+                'totalAmount' => $invoice->total_amount,
+                'rejectionReason' => $invoice->rejection_reason,
+            ]),
         ]);
     }
 
@@ -167,11 +216,24 @@ class PaymentController extends Controller
         $relativePath = "payment-proofs/{$user->id}/" . time() . '.' . $file->getClientOriginalExtension();
         $file->storeAs('payment-proofs/' . $user->id, time() . '.' . $file->getClientOriginalExtension(), 'public');
 
+        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
         $payment->update([
             'proof_file_url'   => '/uploads/' . $relativePath,
-            'status'           => 'pending_verification',
+            'status'           => FinanceActivationService::STATUS_WAITING_VERIFICATION,
             'rejection_reason' => null,
+            'submitted_at'     => now(),
+            'meta'             => array_merge($payment->meta ?? [], ['sender_name' => $request->senderName]),
         ]);
+
+        FinanceActivationService::logPaymentStatusChange(
+            $payment->fresh(),
+            $user->id,
+            'submit_proof',
+            $fromStatus,
+            FinanceActivationService::STATUS_WAITING_VERIFICATION,
+            'Bukti pembayaran diunggah.'
+        );
 
         return response()->json(['success' => true]);
     }

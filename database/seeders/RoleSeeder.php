@@ -78,6 +78,12 @@ class RoleSeeder extends Seeder
             'admin-pusat-manajemen-event', // Kelola Event
             'hub',                    // MPJ Hub
             'pengaturan',
+            // Finance detail
+            'verifikasi',
+            'laporan-keuangan',
+            'harga',
+            'clearing',
+            'regional-monitoring',
             // Super Admin
             'master-data',
             'militansi',

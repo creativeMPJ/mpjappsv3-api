@@ -66,6 +66,7 @@ class AuthController extends Controller
                 'jabatan'         => 'Koordinator',
                 'jabatan_code_id' => $jabatanCode?->id,
                 'no_wa'           => $data['noWhatsapp'] ?? null,
+                'status'          => 'pending',
             ]);
 
             User::where('id', $user->id)->update([
