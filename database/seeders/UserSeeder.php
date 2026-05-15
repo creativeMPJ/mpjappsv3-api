@@ -125,7 +125,11 @@ class UserSeeder extends Seeder
             if ($data['role'] === 'user') {
                 $crew = Crew::firstOrCreate(
                     ['profile_id' => $profile->id],
-                    ['id' => (string) Str::uuid()]
+                    [
+                        'id' => (string) Str::uuid(),
+                        'nama' => $data['crew_nama'] ?? 'Pengasuh',
+                        'jabatan' => $data['crew_jabatan'] ?? 'Koordinator',
+                    ]
                 );
 
                 $crew->fill(array_filter([

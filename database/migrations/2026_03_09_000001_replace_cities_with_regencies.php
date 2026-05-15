@@ -8,10 +8,30 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        // Drop FK if exists
-        $fks = DB::select("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='profiles' AND CONSTRAINT_NAME='profiles_city_id_foreign'");
-        if ($fks) {
-            DB::statement("ALTER TABLE profiles DROP FOREIGN KEY profiles_city_id_foreign");
+        // Drop any FK attached to profiles.city_id regardless of environment-specific name
+        $foreignKeys = DB::select("
+            SELECT CONSTRAINT_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'profiles'
+              AND COLUMN_NAME = 'city_id'
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+        ");
+        foreach ($foreignKeys as $foreignKey) {
+            DB::statement("ALTER TABLE profiles DROP FOREIGN KEY `{$foreignKey->CONSTRAINT_NAME}`");
+        }
+
+        // Drop any remaining plain index on profiles.city_id
+        $indexes = DB::select("
+            SELECT INDEX_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'profiles'
+              AND COLUMN_NAME = 'city_id'
+              AND INDEX_NAME <> 'PRIMARY'
+        ");
+        foreach ($indexes as $index) {
+            DB::statement("ALTER TABLE profiles DROP INDEX `{$index->INDEX_NAME}`");
         }
 
         // Drop column if exists (will re-add with correct charset)
