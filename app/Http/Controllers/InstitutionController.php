@@ -76,21 +76,24 @@ class InstitutionController extends Controller
         $region = $regency->regions()->first();
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $regency, $region) {
-            PesantrenProfile::where('id', $user->id)->update([
-                'role'           => 'user',
-                'nama_pesantren' => $data['namaPesantren'],
-                'nama_pengasuh'  => $data['namaPengasuh'],
-                'alamat_singkat' => $data['alamatLengkap'],
-                'regency_id'     => $regency->id,
-                'region_id'      => $region?->id,
-                'status_account' => 'pending',
-            ]);
+            $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+            if ($profile) {
+                $profile->update([
+                    'nama_pesantren' => $data['namaPesantren'],
+                    'nama_pengasuh'  => $data['namaPengasuh'],
+                    'alamat_singkat' => $data['alamatLengkap'],
+                    'regency_id'     => $regency->id,
+                    'region_id'      => $region?->id,
+                    'status_account' => 'pending',
+                ]);
+            }
 
             if ($user->reff_type === 'crew' && $user->reff_id) {
                 Crew::where('id', $user->reff_id)->update(['no_wa' => $data['noWhatsapp']]);
             }
 
-            $existing = PesantrenClaim::where('user_id', $user->id)->first();
+            $existing = $profile ? PesantrenClaim::where('user_id', $profile->id)->first() : null;
 
             $claimData = [
                 'pesantren_name'     => $data['namaPesantren'],
@@ -107,7 +110,7 @@ class InstitutionController extends Controller
             if ($existing) {
                 $existing->update($claimData);
             } else {
-                PesantrenClaim::create(array_merge(['id' => Str::uuid(), 'user_id' => $user->id], $claimData));
+                PesantrenClaim::create(array_merge(['id' => Str::uuid(), 'user_id' => $profile->id], $claimData));
             }
         });
 
@@ -130,7 +133,7 @@ class InstitutionController extends Controller
             'longitude' => 'nullable|numeric',
         ]);
 
-        PesantrenProfile::where('id', $user->id)->update(array_filter([
+        PesantrenProfile::where('user_id', $user->id)->update(array_filter([
             'latitude'  => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
         ], fn($v) => $v !== null));
@@ -142,10 +145,14 @@ class InstitutionController extends Controller
     {
         $user = auth()->user();
 
-        $claim = PesantrenClaim::with('region:id,name')
-            ->where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        $claim = $profile
+            ? PesantrenClaim::with('region:id,name')
+                ->where('user_id', $profile->id)
+                ->orderBy('created_at', 'desc')
+                ->first()
+            : null;
 
         if (!$claim) return response()->json(['claim' => null, 'region' => null]);
 

@@ -28,41 +28,65 @@ class WilayahSeeder extends Seeder
         }
 
         $this->command->info('Importing wilayah data (provinces, regencies, districts, villages)...');
-
-        // Execute via mysql CLI for reliable handling of large SQL files
-        $config   = config('database.connections.mysql');
-        $host     = $config['host'];
-        $port     = $config['port'];
-        $database = $config['database'];
-        $username = $config['username'];
-        $password = $config['password'];
-
-        $tmpFile = tempnam(sys_get_temp_dir(), 'wilayah_') . '.sql';
-        file_put_contents($tmpFile, $sql);
-
-        $passArg = $password ? "-p" . escapeshellarg($password) : '';
-        $cmd     = sprintf(
-            'mysql -h %s -P %s -u %s %s %s --force < %s 2>&1',
-            escapeshellarg($host),
-            escapeshellarg($port),
-            escapeshellarg($username),
-            $passArg,
-            escapeshellarg($database),
-            escapeshellarg($tmpFile)
-        );
-
-        exec($cmd, $output, $exitCode);
-        unlink($tmpFile);
-
-        if ($exitCode !== 0) {
-            $this->command->error('mysql import failed (exit code: ' . $exitCode . ')');
-            foreach ($output as $line) {
-                $this->command->warn($line);
-            }
-            return;
-        }
+        $this->executeSqlDump($sql);
 
         $count = DB::table('regencies')->count();
         $this->command->info("Wilayah imported: {$count} regencies.");
+    }
+
+    private function executeSqlDump(string $sql): void
+    {
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
+
+        try {
+            $buffer = '';
+            $inSingleQuote = false;
+            $inDoubleQuote = false;
+            $length = strlen($sql);
+
+            for ($i = 0; $i < $length; $i++) {
+                $char = $sql[$i];
+                $prev = $i > 0 ? $sql[$i - 1] : null;
+
+                if ($char === "'" && $prev !== '\\' && !$inDoubleQuote) {
+                    $inSingleQuote = !$inSingleQuote;
+                } elseif ($char === '"' && $prev !== '\\' && !$inSingleQuote) {
+                    $inDoubleQuote = !$inDoubleQuote;
+                }
+
+                $buffer .= $char;
+
+                if ($char === ';' && !$inSingleQuote && !$inDoubleQuote) {
+                    $statement = trim($buffer);
+                    $buffer = '';
+
+                    $this->executeStatement($statement);
+                }
+            }
+
+            $remainder = trim($buffer);
+            if ($remainder !== '') {
+                $this->executeStatement($remainder);
+            }
+        } finally {
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+        }
+    }
+
+    private function executeStatement(string $statement): void
+    {
+        if ($statement === '' || str_starts_with($statement, '--')) {
+            return;
+        }
+
+        if (preg_match('/^(CREATE DATABASE|USE\\s)/i', $statement)) {
+            return;
+        }
+
+        if (preg_match('/^INSERT\s+INTO/i', $statement)) {
+            $statement = preg_replace('/^INSERT\s+INTO/i', 'INSERT IGNORE INTO', $statement, 1) ?? $statement;
+        }
+
+        DB::unprepared($statement);
     }
 }

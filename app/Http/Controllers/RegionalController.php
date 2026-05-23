@@ -4,13 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Crew;
 use App\Models\FollowUpLog;
+use App\Models\HubResource;
+use App\Models\MilitansiLevel;
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PricingPackage;
 use App\Models\PesantrenProfile;
+use App\Models\RegionalReport;
 use App\Models\Region;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class RegionalController extends Controller
@@ -21,7 +25,7 @@ class RegionalController extends Controller
         $role    = $user->activeRole();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$role || $role->nama !== 'Admin Wilayah' || !$profile?->region_id) {
+        if (!$role || $role->nama !== 'Admin Regional' || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
 
@@ -39,7 +43,7 @@ class RegionalController extends Controller
         $crews = Crew::with('profile:id,nama_pesantren,region_id')
             ->whereHas('profile', fn($q) => $q->where('region_id', $regionId))
             ->orderBy('nama')
-            ->get(['id', 'profile_id', 'nama', 'jabatan', 'niam', 'xp_level']);
+            ->get(['id', 'profile_id', 'nama', 'jabatan', 'niam', 'status', 'xp_level']);
 
         return response()->json([
             'profiles' => $profiles->map(fn($p) => [
@@ -57,6 +61,7 @@ class RegionalController extends Controller
                 'nama'          => $c->nama,
                 'jabatan'       => $c->jabatan,
                 'niam'          => $c->niam,
+                'status'        => $c->status,
                 'xp_level'      => $c->xp_level,
                 'pesantren_name'=> $c->profile?->nama_pesantren,
             ]),
@@ -155,8 +160,13 @@ class RegionalController extends Controller
                 'notes'                => null,
             ]);
 
+            PesantrenProfile::where('id', $claim->user_id)->update([
+                'status_account' => 'pending',
+                'status_payment' => 'unpaid',
+            ]);
+
             if ($claim->jenis_pengajuan === 'klaim') {
-                PesantrenProfile::where('id', $claim->user_id)->update(['status_account' => 'active']);
+                // klaim: cukup aktifkan, tidak perlu payment
             } else {
                 $existingPayment = Payment::where('pesantren_claim_id', $claim->id)->first();
 
@@ -282,7 +292,7 @@ class RegionalController extends Controller
         $weekAgo  = now()->subDays(7);
 
         $approvedClaims = PesantrenClaim::where('region_id', $regionId)
-            ->whereIn('status', ['approved', 'pusat_approved'])
+            ->whereIn('status', ['regional_approved', 'approved', 'pusat_approved'])
             ->count();
 
         $paidProfiles = PesantrenProfile::where('region_id', $regionId)
@@ -324,7 +334,7 @@ class RegionalController extends Controller
 
         $stats = $regions->map(function ($r) {
             $verified = PesantrenClaim::where('region_id', $r->id)
-                ->whereIn('status', ['approved', 'pusat_approved'])
+                ->whereIn('status', ['regional_approved', 'approved', 'pusat_approved'])
                 ->count();
 
             $paid = PesantrenProfile::where('region_id', $r->id)
@@ -347,6 +357,160 @@ class RegionalController extends Controller
         return response()->json([
             'leaderboard'    => $sorted,
             'user_region_id' => $myRegionId,
+        ]);
+    }
+
+    public function reports(Request $request)
+    {
+        $regionId = $this->assertRegional();
+
+        $reports = RegionalReport::where('region_id', $regionId)
+            ->orderByDesc('report_date')
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'reports' => $reports->map(fn($report) => [
+                'id' => $report->id,
+                'title' => $report->title,
+                'description' => $report->description,
+                'report_date' => $report->report_date,
+                'file_url' => $report->file_url,
+                'status' => $report->status,
+                'created_at' => $report->created_at,
+            ])->values(),
+        ]);
+    }
+
+    public function submitReport(Request $request)
+    {
+        $regionId = $this->assertRegional();
+        $user = auth()->user();
+
+        $data = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'report_date' => 'nullable|date',
+            'file' => 'required|file|max:10240',
+        ]);
+
+        $reportId = (string) Str::uuid();
+        $file = $request->file('file');
+        $path = 'regional-reports/' . $regionId . '/' . now()->format('Y/m');
+        $filename = $reportId . '.' . $file->getClientOriginalExtension();
+        $file->storeAs($path, $filename, 'public');
+
+        $report = RegionalReport::create([
+            'id' => $reportId,
+            'region_id' => $regionId,
+            'title' => $data['title'],
+            'description' => $data['description'] ?? null,
+            'report_date' => $data['report_date'] ?? now()->toDateString(),
+            'file_url' => '/uploads/' . $path . '/' . $filename,
+            'status' => 'submitted',
+            'created_by' => $user?->id,
+        ]);
+
+        $rule = \App\Models\MilitansiRule::where('action_key', 'submit_regional_report')->where('is_active', true)->first();
+        if ($rule) {
+            Crew::whereHas('profile', fn($query) => $query->where('user_id', $user?->id))
+                ->increment('xp_level', $rule->xp_value);
+        }
+
+        return response()->json([
+            'success' => true,
+            'report' => [
+                'id' => $report->id,
+                'title' => $report->title,
+                'description' => $report->description,
+                'report_date' => $report->report_date,
+                'file_url' => $report->file_url,
+                'status' => $report->status,
+                'created_at' => $report->created_at,
+            ],
+        ], 201);
+    }
+
+    public function deleteReport(Request $request, string $id)
+    {
+        $regionId = $this->assertRegional();
+
+        $report = RegionalReport::where('region_id', $regionId)->find($id);
+        if (!$report) {
+            return response()->json(['message' => 'Laporan tidak ditemukan'], 404);
+        }
+
+        if ($report->file_url && str_starts_with($report->file_url, '/uploads/')) {
+            $relativePath = ltrim(str_replace('/uploads/', '', $report->file_url), '/');
+            Storage::disk('public')->delete($relativePath);
+        }
+
+        $report->delete();
+
+        return response()->json(['success' => true]);
+    }
+
+    public function downloadCenter(Request $request)
+    {
+        $this->assertRegional();
+
+        $resources = HubResource::query()
+            ->where('is_published', true)
+            ->where(function ($query) {
+                $query->whereNull('visibility_scopes')
+                    ->orWhereJsonContains('visibility_scopes', 'all')
+                    ->orWhereJsonContains('visibility_scopes', 'admin_regional');
+            })
+            ->orderBy('sort_order')
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'resources' => $resources->map(fn($resource) => [
+                'id' => $resource->id,
+                'title' => $resource->title,
+                'description' => $resource->description,
+                'category' => $resource->category,
+                'resource_type' => $resource->resource_type,
+                'download_url' => $resource->resource_type === 'link' ? $resource->external_url : $resource->file_url,
+                'file_size' => $resource->file_size,
+                'created_at' => $resource->created_at,
+            ])->values(),
+        ]);
+    }
+
+    public function militansiOverview(Request $request)
+    {
+        $regionId = $this->assertRegional();
+
+        $levels = MilitansiLevel::orderBy('min_xp')->get(['id', 'name', 'min_xp', 'color']);
+        $crews = Crew::with('profile:id,region_id,nama_pesantren')
+            ->whereHas('profile', fn($query) => $query->where('region_id', $regionId))
+            ->orderByDesc('xp_level')
+            ->orderBy('nama')
+            ->get(['id', 'profile_id', 'nama', 'jabatan', 'status', 'niam', 'xp_level']);
+
+        return response()->json([
+            'summary' => [
+                'total_crews' => $crews->count(),
+                'active_crews' => $crews->where('status', 'active')->count(),
+                'average_xp' => (int) round($crews->avg('xp_level') ?? 0),
+            ],
+            'levels' => $levels,
+            'leaderboard' => $crews->take(20)->values()->map(function ($crew, $index) use ($levels) {
+                $level = $levels->filter(fn($item) => $crew->xp_level >= $item->min_xp)->sortByDesc('min_xp')->first();
+                return [
+                    'rank' => $index + 1,
+                    'name' => $crew->nama,
+                    'jabatan' => $crew->jabatan,
+                    'niam' => $crew->niam,
+                    'xp_level' => $crew->xp_level,
+                    'status' => $crew->status,
+                    'pesantren_name' => $crew->profile?->nama_pesantren,
+                    'level' => $level?->name ?? 'Muhibbin',
+                    'level_color' => $level?->color ?? '#94a3b8',
+                ];
+            }),
         ]);
     }
 }

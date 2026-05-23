@@ -1,0 +1,1300 @@
+{
+  "info": {
+    "name": "MPJ Apps API",
+    "description": "Dokumentasi lengkap API MPJ Apps (Majelis Pembinaan Jama'ah)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api", "type": "string" },
+    { "key": "token", "value": "", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Utility",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "Artisan Runner",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"command\": \"config:clear\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/artisan", "host": ["{{base_url}}"], "path": ["artisan"] }
+          }
+        },
+        {
+          "name": "Dev Reset",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"sulip\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/dev/reset", "host": ["{{base_url}}"], "path": ["dev", "reset"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('token', pm.response.json().token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pesantren@gmail.com\",\n  \"password\": \"password123\",\n  \"namaPesantren\": \"Pondok Pesantren Al-Hikmah\",\n  \"namaPengasuh\": \"KH. Abdullah\",\n  \"namaPengelola\": \"Ahmad Fauzi\",\n  \"noWhatsapp\": \"08123456789\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"] }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('token', pm.response.json().token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pesantren@gmail.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Get Current User (Me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/auth/me", "host": ["{{base_url}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pesantren@gmail.com\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/forgot-password", "host": ["{{base_url}}"], "path": ["auth", "forgot-password"] }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"password123\",\n  \"newPassword\": \"newpassword123\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/change-password", "host": ["{{base_url}}"], "path": ["auth", "change-password"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public",
+      "item": [
+        {
+          "name": "Get Regions",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/public/regions", "host": ["{{base_url}}"], "path": ["public", "regions"] }
+          }
+        },
+        {
+          "name": "Get Cities",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/public/cities?province_id=35",
+              "host": ["{{base_url}}"],
+              "path": ["public", "cities"],
+              "query": [{ "key": "province_id", "value": "35", "description": "ID provinsi (opsional)" }]
+            }
+          }
+        },
+        {
+          "name": "Get City Region",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/public/cities/:id/region", "host": ["{{base_url}}"], "path": ["public", "cities", ":id", "region"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Get Directory",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/public/directory?search=&regionId=",
+              "host": ["{{base_url}}"],
+              "path": ["public", "directory"],
+              "query": [
+                { "key": "search", "value": "", "description": "Kata kunci pencarian" },
+                { "key": "regionId", "value": "", "description": "UUID wilayah" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Directory Search",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/public/directory-search?search=&regionId=",
+              "host": ["{{base_url}}"],
+              "path": ["public", "directory-search"],
+              "query": [
+                { "key": "search", "value": "" },
+                { "key": "regionId", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Pesantren Search",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/public/pesantren?search=al-hikmah",
+              "host": ["{{base_url}}"],
+              "path": ["public", "pesantren"],
+              "query": [{ "key": "search", "value": "al-hikmah" }]
+            }
+          }
+        },
+        {
+          "name": "Get Pesantren Profile by NIP",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/public/pesantren/:nip/profile", "host": ["{{base_url}}"], "path": ["public", "pesantren", ":nip", "profile"], "variable": [{ "key": "nip", "value": "" }] }
+          }
+        },
+        {
+          "name": "Get Pesantren Crew by NIAM",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/public/pesantren/:nip/crew/:niamSuffix", "host": ["{{base_url}}"], "path": ["public", "pesantren", ":nip", "crew", ":niamSuffix"], "variable": [{ "key": "nip", "value": "" }, { "key": "niamSuffix", "value": "" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Claims",
+      "item": [
+        {
+          "name": "Get Pending Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/claims/pending-count", "host": ["{{base_url}}"], "path": ["claims", "pending-count"] }
+          }
+        },
+        {
+          "name": "Search Claims",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/claims/search?query=",
+              "host": ["{{base_url}}"],
+              "path": ["claims", "search"],
+              "query": [{ "key": "query", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "Send OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claimId\": \"uuid-claim-id\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/claims/send-otp", "host": ["{{base_url}}"], "path": ["claims", "send-otp"] }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"otpCode\": \"123456\",\n  \"otpId\": \"uuid-otp-id\",\n  \"claimId\": \"uuid-claim-id\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/claims/verify-otp", "host": ["{{base_url}}"], "path": ["claims", "verify-otp"] }
+          }
+        },
+        {
+          "name": "Get Claim Contact",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/claims/contact/:claimId", "host": ["{{base_url}}"], "path": ["claims", "contact", ":claimId"], "variable": [{ "key": "claimId", "value": "" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Get Current Payment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/payments/current", "host": ["{{base_url}}"], "path": ["payments", "current"] }
+          }
+        },
+        {
+          "name": "Get Payment Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/payments/summary", "host": ["{{base_url}}"], "path": ["payments", "summary"] }
+          }
+        },
+        {
+          "name": "Submit Payment Proof",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "paymentId", "value": "uuid-payment-id", "type": "text" },
+                { "key": "senderName", "value": "Ahmad Fauzi", "type": "text" },
+                { "key": "file", "type": "file", "src": "" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/payments/submit-proof", "host": ["{{base_url}}"], "path": ["payments", "submit-proof"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "item": [
+        {
+          "name": "Get Pesantren Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/profile/pesantren", "host": ["{{base_url}}"], "path": ["profile", "pesantren"] }
+          }
+        },
+        {
+          "name": "Update Profile - Step 1 (Data Dasar)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"step\": 1,\n  \"namaPesantren\": \"Pondok Pesantren Al-Hikmah\",\n  \"namaPengasuh\": \"KH. Abdullah\",\n  \"alamatSingkat\": \"Jl. Pesantren No. 1, Surabaya\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/profile/pesantren", "host": ["{{base_url}}"], "path": ["profile", "pesantren"] }
+          }
+        },
+        {
+          "name": "Update Profile - Step 2 (Media & Lokasi)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"step\": 2,\n  \"namaMedia\": \"Media Al-Hikmah\",\n  \"instagram\": \"@pesantren_alhikmah\",\n  \"youtube\": \"\",\n  \"tiktok\": \"\",\n  \"website\": \"\",\n  \"dawuhPengasuh\": \"Tuntutlah ilmu sampai ke negeri Cina\",\n  \"jumlahSantri\": 500,\n  \"tahunBerdiri\": 1990,\n  \"latitude\": \"-7.2504\",\n  \"longitude\": \"112.7688\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/profile/pesantren", "host": ["{{base_url}}"], "path": ["profile", "pesantren"] }
+          }
+        },
+        {
+          "name": "Update Profile - Step 3 (Profil Lengkap)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"step\": 3,\n  \"visiMisi\": \"Mencetak generasi qurani yang berakhlak mulia\",\n  \"sejarahSingkat\": \"Didirikan pada tahun 1990 oleh KH. Abdullah\",\n  \"tipePesantren\": \"Salafiyah\",\n  \"jenjangPendidikan\": \"Ula, Wustho, Ulya\",\n  \"programUnggulan\": \"Tahfidz Al-Quran\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/profile/pesantren", "host": ["{{base_url}}"], "path": ["profile", "pesantren"] }
+          }
+        },
+        {
+          "name": "Upload Media Pesantren",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "type", "value": "logo_pesantren", "type": "text", "description": "logo_pesantren | foto_pengasuh | foto_gedung | logo_media" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/media/upload-pesantren", "host": ["{{base_url}}"], "path": ["media", "upload-pesantren"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Media & Kru",
+      "item": [
+        {
+          "name": "Get Jabatan Codes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/media/jabatan-codes", "host": ["{{base_url}}"], "path": ["media", "jabatan-codes"] }
+          }
+        },
+        {
+          "name": "Get Kru",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/media/crew", "host": ["{{base_url}}"], "path": ["media", "crew"] }
+          }
+        },
+        {
+          "name": "Tambah Kru",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nama\": \"Budi Santoso\",\n  \"jabatanCodeId\": null,\n  \"jabatan\": \"Reporter\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/media/crew", "host": ["{{base_url}}"], "path": ["media", "crew"] }
+          }
+        },
+        {
+          "name": "Update Kru",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nama\": \"Budi Santoso Updated\",\n  \"jabatan\": \"Editor\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/media/crew/:id", "host": ["{{base_url}}"], "path": ["media", "crew", ":id"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Hapus Kru",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{base_url}}/media/crew/:id", "host": ["{{base_url}}"], "path": ["media", "crew", ":id"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Get Slot Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/media/slot-config", "host": ["{{base_url}}"], "path": ["media", "slot-config"] }
+          }
+        },
+        {
+          "name": "Get Dashboard Context",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/media/dashboard-context", "host": ["{{base_url}}"], "path": ["media", "dashboard-context"] }
+          }
+        },
+        {
+          "name": "Get Profile Settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/media/profile-settings", "host": ["{{base_url}}"], "path": ["media", "profile-settings"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Institution",
+      "item": [
+        {
+          "name": "Get Ownership",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/institution/ownership", "host": ["{{base_url}}"], "path": ["institution", "ownership"] }
+          }
+        },
+        {
+          "name": "Upload Registration Document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "", "description": "pdf|jpeg|png|webp max 1MB" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/institution/upload-registration-document", "host": ["{{base_url}}"], "path": ["institution", "upload-registration-document"] }
+          }
+        },
+        {
+          "name": "Submit Initial Data",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"namaPesantren\": \"Pondok Pesantren Al-Hikmah\",\n  \"namaPengasuh\": \"KH. Abdullah\",\n  \"alamatLengkap\": \"Jl. Pesantren No. 1, RT 01/RW 02\",\n  \"regencyId\": \"3578\",\n  \"kecamatan\": \"Wonokromo\",\n  \"namaPengelola\": \"Ahmad Fauzi\",\n  \"emailPengelola\": \"pengelola@pesantren.com\",\n  \"noWhatsapp\": \"08123456789\",\n  \"dokumenBuktiUrl\": null,\n  \"jenisPengajuan\": \"pesantren_baru\",\n  \"pesantrenId\": null\n}"
+            },
+            "url": { "raw": "{{base_url}}/institution/initial-data", "host": ["{{base_url}}"], "path": ["institution", "initial-data"] }
+          }
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -7.2504,\n  \"longitude\": 112.7688\n}"
+            },
+            "url": { "raw": "{{base_url}}/institution/location", "host": ["{{base_url}}"], "path": ["institution", "location"] }
+          }
+        },
+        {
+          "name": "Get Pending Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/institution/pending-status", "host": ["{{base_url}}"], "path": ["institution", "pending-status"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Regional Admin",
+      "item": [
+        {
+          "name": "Get Master Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/master-data", "host": ["{{base_url}}"], "path": ["regional", "master-data"] }
+          }
+        },
+        {
+          "name": "Get Pending Claims",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/pending-claims", "host": ["{{base_url}}"], "path": ["regional", "pending-claims"] }
+          }
+        },
+        {
+          "name": "Get Pricing Packages",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/pricing-packages", "host": ["{{base_url}}"], "path": ["regional", "pricing-packages"] }
+          }
+        },
+        {
+          "name": "Approve Claim",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pricingPackageId\": null\n}"
+            },
+            "url": { "raw": "{{base_url}}/regional/claims/:id/approve", "host": ["{{base_url}}"], "path": ["regional", "claims", ":id", "approve"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Reject Claim",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Dokumen tidak lengkap\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/regional/claims/:id/reject", "host": ["{{base_url}}"], "path": ["regional", "claims", ":id", "reject"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Get Late Payments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/late-payments", "host": ["{{base_url}}"], "path": ["regional", "late-payments"] }
+          }
+        },
+        {
+          "name": "Follow-up Late Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/late-payments/:claimId/follow-up", "host": ["{{base_url}}"], "path": ["regional", "late-payments", ":claimId", "follow-up"], "variable": [{ "key": "claimId", "value": "" }] }
+          }
+        },
+        {
+          "name": "Get Performance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/performance", "host": ["{{base_url}}"], "path": ["regional", "performance"] }
+          }
+        },
+        {
+          "name": "Get Leaderboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/regional/leaderboard", "host": ["{{base_url}}"], "path": ["regional", "leaderboard"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Pusat",
+      "item": [
+        {
+          "name": "Dashboard",
+          "item": [
+            {
+              "name": "Get Home Summary",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/home-summary", "host": ["{{base_url}}"], "path": ["admin", "home-summary"] }
+              }
+            },
+            {
+              "name": "Get Super Stats",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/super-stats", "host": ["{{base_url}}"], "path": ["admin", "super-stats"] }
+              }
+            },
+            {
+              "name": "Get Late Payment Count",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/late-payment-count", "host": ["{{base_url}}"], "path": ["admin", "late-payment-count"] }
+              }
+            },
+            {
+              "name": "Global Search",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/admin/global-search?query=",
+                  "host": ["{{base_url}}"],
+                  "path": ["admin", "global-search"],
+                  "query": [{ "key": "query", "value": "" }]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clearing House",
+          "item": [
+            {
+              "name": "Get Pending",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/clearing-house/pending", "host": ["{{base_url}}"], "path": ["admin", "clearing-house", "pending"] }
+              }
+            },
+            {
+              "name": "Approve",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/clearing-house/:id/approve", "host": ["{{base_url}}"], "path": ["admin", "clearing-house", ":id", "approve"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Reject",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/clearing-house/:id/reject", "host": ["{{base_url}}"], "path": ["admin", "clearing-house", ":id", "reject"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Master Data",
+          "item": [
+            {
+              "name": "Get Master Data",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/master-data", "host": ["{{base_url}}"], "path": ["admin", "master-data"] }
+              }
+            },
+            {
+              "name": "Update Pesantren",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nama_pesantren\": \"Nama Baru\",\n  \"nama_pengasuh\": \"KH. Baru\",\n  \"alamat_singkat\": \"Alamat baru\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/master-data/pesantren/:id", "host": ["{{base_url}}"], "path": ["admin", "master-data", "pesantren", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Update Media",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nama_pesantren\": \"Nama Baru\",\n  \"nama_media\": \"Media Baru\",\n  \"no_wa_pendaftar\": \"08123456789\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/master-data/media/:id", "host": ["{{base_url}}"], "path": ["admin", "master-data", "media", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Update Kru",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nama\": \"Nama Kru Baru\",\n  \"jabatan\": \"Editor\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/master-data/crew/:id", "host": ["{{base_url}}"], "path": ["admin", "master-data", "crew", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Hapus Kru",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/master-data/crew/:id", "host": ["{{base_url}}"], "path": ["admin", "master-data", "crew", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Import Master Data",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"pesantren\",\n  \"rows\": [\n    { \"NIP\": \"35.01.001\", \"Nama Pesantren\": \"Pondok Test\", \"Nama Pengasuh\": \"KH. Test\" }\n  ]\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/master-data/import", "host": ["{{base_url}}"], "path": ["admin", "master-data", "import"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payments",
+          "item": [
+            {
+              "name": "Get Payments",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/payments", "host": ["{{base_url}}"], "path": ["admin", "payments"] }
+              }
+            },
+            {
+              "name": "Approve Payment",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/payments/:id/approve", "host": ["{{base_url}}"], "path": ["admin", "payments", ":id", "approve"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Reject Payment",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Bukti transfer tidak valid\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/payments/:id/reject", "host": ["{{base_url}}"], "path": ["admin", "payments", ":id", "reject"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pricing Packages",
+          "item": [
+            {
+              "name": "Get Packages",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/pricing-packages", "host": ["{{base_url}}"], "path": ["admin", "pricing-packages"] }
+              }
+            },
+            {
+              "name": "Create Package",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Paket Registrasi Dasar\",\n  \"category\": \"registration\",\n  \"hargaPaket\": 500000,\n  \"hargaDiskon\": 450000,\n  \"isActive\": true\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/pricing-packages", "host": ["{{base_url}}"], "path": ["admin", "pricing-packages"] }
+              }
+            },
+            {
+              "name": "Update Package",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"hargaPaket\": 600000,\n  \"isActive\": true\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/pricing-packages/:id", "host": ["{{base_url}}"], "path": ["admin", "pricing-packages", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Toggle Package",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/pricing-packages/:id/toggle", "host": ["{{base_url}}"], "path": ["admin", "pricing-packages", ":id", "toggle"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Settings",
+          "item": [
+            {
+              "name": "Get Bank Settings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/bank-settings", "host": ["{{base_url}}"], "path": ["admin", "bank-settings"] }
+              }
+            },
+            {
+              "name": "Update Bank Settings",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"bankName\": \"BRI\",\n  \"bankAccountNumber\": \"1234567890\",\n  \"bankAccountName\": \"MPJ Apps\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/bank-settings", "host": ["{{base_url}}"], "path": ["admin", "bank-settings"] }
+              }
+            },
+            {
+              "name": "Get Price Settings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/price-settings", "host": ["{{base_url}}"], "path": ["admin", "price-settings"] }
+              }
+            },
+            {
+              "name": "Update Price Settings",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"registrationPrice\": 500000,\n  \"claimPrice\": 300000\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/price-settings", "host": ["{{base_url}}"], "path": ["admin", "price-settings"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Regional Management",
+          "item": [
+            {
+              "name": "Get Data",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/regional-management/data", "host": ["{{base_url}}"], "path": ["admin", "regional-management", "data"] }
+              }
+            },
+            {
+              "name": "Add Region",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Wilayah Jawa Timur\",\n  \"code\": \"35\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/regional-management/regions", "host": ["{{base_url}}"], "path": ["admin", "regional-management", "regions"] }
+              }
+            },
+            {
+              "name": "Delete Region",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/regional-management/regions/:id", "host": ["{{base_url}}"], "path": ["admin", "regional-management", "regions", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Assign Regional Admin",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"uuid-user-id\",\n  \"regionId\": \"uuid-region-id\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/regional-management/assign-admin", "host": ["{{base_url}}"], "path": ["admin", "regional-management", "assign-admin"] }
+              }
+            },
+            {
+              "name": "Get Region Detail",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/regions/:id/detail", "host": ["{{base_url}}"], "path": ["admin", "regions", ":id", "detail"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Settings",
+          "item": [
+            {
+              "name": "Get Data",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/admin-settings/data", "host": ["{{base_url}}"], "path": ["admin", "admin-settings", "data"] }
+              }
+            },
+            {
+              "name": "Search Kru",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/admin/admin-settings/search-crew?query=",
+                  "host": ["{{base_url}}"],
+                  "path": ["admin", "admin-settings", "search-crew"],
+                  "query": [{ "key": "query", "value": "" }]
+                }
+              }
+            },
+            {
+              "name": "Assign Admin Role",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"profileId\": \"uuid-profile-id\",\n  \"role\": \"admin_regional\",\n  \"regionId\": \"uuid-region-id\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/admin-settings/assign", "host": ["{{base_url}}"], "path": ["admin", "admin-settings", "assign"] }
+              }
+            },
+            {
+              "name": "Remove Admin Role",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/admin-settings/:userId", "host": ["{{base_url}}"], "path": ["admin", "admin-settings", ":userId"], "variable": [{ "key": "userId", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Users Management",
+          "item": [
+            {
+              "name": "Get Users",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/users-management", "host": ["{{base_url}}"], "path": ["admin", "users-management"] }
+              }
+            },
+            {
+              "name": "Update User",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"role\": \"user\",\n  \"statusAccount\": \"active\",\n  \"statusPayment\": \"paid\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/users/:id", "host": ["{{base_url}}"], "path": ["admin", "users", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Jabatan Codes",
+          "item": [
+            {
+              "name": "Get All",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/jabatan-codes", "host": ["{{base_url}}"], "path": ["admin", "jabatan-codes"] }
+              }
+            },
+            {
+              "name": "Create",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"KD\",\n  \"name\": \"Koordinator Daerah\",\n  \"description\": \"Koordinator tingkat daerah\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/jabatan-codes", "host": ["{{base_url}}"], "path": ["admin", "jabatan-codes"] }
+              }
+            },
+            {
+              "name": "Update",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"KD\",\n  \"name\": \"Koordinator Daerah Updated\",\n  \"description\": \"Updated\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/jabatan-codes/:id", "host": ["{{base_url}}"], "path": ["admin", "jabatan-codes", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            },
+            {
+              "name": "Delete",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/jabatan-codes/:id", "host": ["{{base_url}}"], "path": ["admin", "jabatan-codes", ":id"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leveling",
+          "item": [
+            {
+              "name": "Get Leveling Profiles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/leveling-profiles", "host": ["{{base_url}}"], "path": ["admin", "leveling-profiles"] }
+              }
+            },
+            {
+              "name": "Promote to Platinum",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/leveling/:id/promote-platinum", "host": ["{{base_url}}"], "path": ["admin", "leveling", ":id", "promote-platinum"], "variable": [{ "key": "id", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pusat Assistants",
+          "item": [
+            {
+              "name": "Get Assistants",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/pusat-assistants", "host": ["{{base_url}}"], "path": ["admin", "pusat-assistants"] }
+              }
+            },
+            {
+              "name": "Add Assistant",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"crewId\": \"uuid-crew-id\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/admin/pusat-assistants", "host": ["{{base_url}}"], "path": ["admin", "pusat-assistants"] }
+              }
+            },
+            {
+              "name": "Remove Assistant",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/pusat-assistants/:crewId", "host": ["{{base_url}}"], "path": ["admin", "pusat-assistants", ":crewId"], "variable": [{ "key": "crewId", "value": "" }] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Claims",
+          "item": [
+            {
+              "name": "Get Claims",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/claims", "host": ["{{base_url}}"], "path": ["admin", "claims"] }
+              }
+            },
+            {
+              "name": "Get Pending Profiles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/admin/pending-profiles", "host": ["{{base_url}}"], "path": ["admin", "pending-profiles"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Finance Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/finance/stats", "host": ["{{base_url}}"], "path": ["finance", "stats"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles & Permissions",
+      "item": [
+        {
+          "name": "Get All Roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/roles?page=1&limit=10&search=&sort_by=created_at&sort_order=desc",
+              "host": ["{{base_url}}"],
+              "path": ["roles"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "search", "value": "" },
+                { "key": "sort_by", "value": "created_at" },
+                { "key": "sort_order", "value": "desc" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Role by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/roles/:id", "host": ["{{base_url}}"], "path": ["roles", ":id"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Create Role",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nama\": \"Admin Keuangan\",\n  \"is_super_admin\": false,\n  \"akses\": [\"view_payments\", \"approve_payments\"]\n}"
+            },
+            "url": { "raw": "{{base_url}}/roles", "host": ["{{base_url}}"], "path": ["roles"] }
+          }
+        },
+        {
+          "name": "Update Role",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nama\": \"Admin Keuangan Updated\",\n  \"is_super_admin\": false,\n  \"akses\": [\"view_payments\", \"approve_payments\", \"reject_payments\"]\n}"
+            },
+            "url": { "raw": "{{base_url}}/roles/:id", "host": ["{{base_url}}"], "path": ["roles", ":id"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Delete Role",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{base_url}}/roles/:id", "host": ["{{base_url}}"], "path": ["roles", ":id"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Get All Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/events", "host": ["{{base_url}}"], "path": ["events"] }
+          }
+        },
+        {
+          "name": "Create Event (Pusat)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Halal Bihalal Nasional\",\n  \"description\": \"Acara halal bihalal se-Indonesia\",\n  \"date\": \"2026-05-01\",\n  \"location\": \"Jakarta\",\n  \"status\": \"active\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/events", "host": ["{{base_url}}"], "path": ["events"] }
+          }
+        },
+        {
+          "name": "Get Event Reports",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/events/:id/reports", "host": ["{{base_url}}"], "path": ["events", ":id", "reports"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Submit Event Report",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"regionId\": \"uuid-region-id\",\n  \"participationCount\": 150,\n  \"notes\": \"Acara berjalan lancar\",\n  \"photoUrl\": null\n}"
+            },
+            "url": { "raw": "{{base_url}}/events/:id/report", "host": ["{{base_url}}"], "path": ["events", ":id", "report"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Get Regional Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/events/regional", "host": ["{{base_url}}"], "path": ["events", "regional"] }
+          }
+        },
+        {
+          "name": "Create Regional Event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pengajian Wilayah\",\n  \"description\": \"Pengajian rutin wilayah\",\n  \"date\": \"2026-04-25\",\n  \"location\": \"Surabaya\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/events/regional", "host": ["{{base_url}}"], "path": ["events", "regional"] }
+          }
+        },
+        {
+          "name": "Update Regional Event",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pengajian Wilayah Updated\",\n  \"status\": \"selesai\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/events/regional/:id", "host": ["{{base_url}}"], "path": ["events", "regional", ":id"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        },
+        {
+          "name": "Submit Regional Event Report",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"participationCount\": 80,\n  \"notes\": \"Dihadiri 80 peserta dari wilayah\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/events/regional/:id/report", "host": ["{{base_url}}"], "path": ["events", "regional", ":id", "report"], "variable": [{ "key": "id", "value": "" }] }
+          }
+        }
+      ]
+    }
+  ]
+}

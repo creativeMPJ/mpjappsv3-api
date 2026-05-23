@@ -18,10 +18,15 @@ class PublicController extends Controller
         return response()->json(['regions' => $regions]);
     }
 
-    public function cities()
+    public function cities(Request $request)
     {
-        $cities = Regency::orderBy('name')->get(['id', 'name', 'province_id']);
-        return response()->json(['cities' => $cities]);
+        $query = Regency::orderBy('name');
+
+        if ($request->filled('province_id')) {
+            $query->where('province_id', $request->province_id);
+        }
+
+        return response()->json(['cities' => $query->get(['id', 'name', 'province_id'])]);
     }
 
     public function cityRegion(Request $request, string $id)
@@ -108,6 +113,7 @@ class PublicController extends Controller
 
         $crews = Crew::where('profile_id', $profile->id)
             ->whereNotNull('niam')
+            ->where('status', 'active')
             ->orderBy('niam')
             ->get(['id', 'nama', 'niam', 'jabatan']);
 
@@ -145,6 +151,7 @@ class PublicController extends Controller
         if (!$profile) return response()->json(['message' => 'Pesantren tidak ditemukan'], 404);
 
         $crews = Crew::where('profile_id', $profile->id)->whereNotNull('niam')
+            ->where('status', 'active')
             ->get(['id', 'nama', 'niam', 'jabatan', 'xp_level']);
 
         $crew = $crews->first(fn($c) => str_ends_with($c->niam, $suffix) || $c->niam === $niamSuffix);
@@ -206,6 +213,37 @@ class PublicController extends Controller
                 'source_year'     => $p->source_year,
                 'region'          => $p->region ? ['id' => $p->region->id, 'name' => $p->region->name, 'code' => $p->region->code] : null,
             ]),
+        ]);
+    }
+
+    public function lookupNiam(Request $request)
+    {
+        $niam = trim((string) $request->query('niam', ''));
+
+        if ($niam === '') {
+            return response()->json(['message' => 'NIAM wajib diisi'], 422);
+        }
+
+        $crew = Crew::with('profile')
+            ->where('niam', $niam)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$crew || !$crew->profile || $crew->profile->status_account !== 'active' || $crew->profile->status_payment !== 'paid') {
+            return response()->json(['message' => 'NIAM tidak ditemukan atau belum aktif'], 404);
+        }
+
+        return response()->json([
+            'member' => [
+                'niam' => $crew->niam,
+                'full_name' => $crew->nama,
+                'institution' => $crew->profile->nama_pesantren,
+                'jabatan' => $crew->jabatan,
+                'profile' => [
+                    'status_account' => $crew->profile->status_account,
+                    'status_payment' => $crew->profile->status_payment,
+                ],
+            ],
         ]);
     }
 }

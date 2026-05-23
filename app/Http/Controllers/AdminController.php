@@ -3,8 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Crew;
+use App\Models\HubResource;
+use App\Models\EventRegistration;
 use App\Models\JabatanCode;
+use App\Models\MilitansiLevel;
+use App\Models\MilitansiRule;
 use App\Models\Payment;
+use App\Models\PaymentLog;
 use App\Models\PesantrenClaim;
 use App\Models\PricingPackage;
 use App\Models\PesantrenProfile;
@@ -12,9 +17,12 @@ use App\Models\Regency;
 use App\Models\Region;
 use App\Models\Role;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Models\UserRole;
+use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class AdminController extends Controller
@@ -50,17 +58,123 @@ class AdminController extends Controller
         }
     }
 
+    private function normalizeRoleName(?string $roleName): string
+    {
+        return match ($roleName) {
+            'Admin Pusat' => 'admin_pusat',
+            'Admin Regional' => 'admin_regional',
+            'Admin Keuangan' => 'admin_finance',
+            'Kru Pesantren' => 'crew',
+            'Koordinator' => 'coordinator',
+            default => 'user',
+        };
+    }
+
+    private function determineActivationState(?PesantrenProfile $profile, ?Payment $payment = null, ?PesantrenClaim $claim = null): string
+    {
+        return FinanceActivationService::determineActivationState($profile, $payment, $claim);
+    }
+
+    private function mapHubResource(HubResource $resource): array
+    {
+        $downloadUrl = $resource->resource_type === 'link'
+            ? $resource->external_url
+            : $resource->file_url;
+
+        return [
+            'id' => $resource->id,
+            'title' => $resource->title,
+            'description' => $resource->description,
+            'category' => $resource->category,
+            'resource_type' => $resource->resource_type,
+            'file_url' => $resource->file_url,
+            'external_url' => $resource->external_url,
+            'download_url' => $downloadUrl,
+            'mime_type' => $resource->mime_type,
+            'file_size' => $resource->file_size,
+            'visibility_scopes' => $resource->visibility_scopes ?: ['all'],
+            'is_published' => (bool) $resource->is_published,
+            'sort_order' => $resource->sort_order,
+            'created_at' => $resource->created_at,
+            'updated_at' => $resource->updated_at,
+        ];
+    }
+
+    private function issueInstitutionNip(Payment $payment): string
+    {
+        if ($payment->claim?->mpj_id_number) {
+            return $payment->claim->mpj_id_number;
+        }
+
+        $region = Region::find($payment->claim?->region_id);
+        if (!$region || !preg_match('/^\d{2}$/', $region->code)) {
+            abort(422, 'Kode RR Belum Valid');
+        }
+
+        $count = PesantrenClaim::where('region_id', $payment->claim->region_id)
+            ->whereNotNull('mpj_id_number')
+            ->count();
+
+        return now()->format('y') . $region->code . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
+    }
+
+    private function activatePrimaryCrew(Payment $payment, string $generatedNip): void
+    {
+        $profileUser = User::where('id', function ($q) use ($payment) {
+            $q->select('user_id')->from('pesantren_profiles')->where('id', $payment->user_id);
+        })->first();
+
+        if (!$profileUser?->reff_id || $profileUser->reff_type !== 'crew') {
+            return;
+        }
+
+        $crew = Crew::find($profileUser->reff_id);
+        if (!$crew) {
+            return;
+        }
+
+        $jabatanCodeId = $crew->jabatan_code_id;
+        if (!$jabatanCodeId && $crew->jabatan) {
+            $foundCode = JabatanCode::whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($crew->jabatan) . '%'])->first();
+            if ($foundCode) {
+                $jabatanCodeId = $foundCode->id;
+                $crew->update(['jabatan_code_id' => $jabatanCodeId]);
+            }
+        }
+
+        $niam = $crew->niam;
+        if (!$niam) {
+            $profile = PesantrenProfile::find($payment->user_id);
+            $niam = $profile
+                ? FinanceActivationService::issueCrewNiam($profile, $crew)
+                : $generatedNip . '01';
+        }
+
+        $crew->update([
+            'status' => 'active',
+            'niam'   => $niam,
+        ]);
+    }
+
     public function homeSummary(Request $request)
     {
         $this->assertPusat();
 
         $totalPesantren   = PesantrenProfile::where('status_account', 'active')->count();
-        $totalKru         = Crew::count();
+        $totalKru         = Crew::where('status', 'active')->count();
         $totalWilayah     = Region::count();
-        $pendingPayments  = Payment::where('status', 'pending_verification')->count();
+        $pendingPayments  = Payment::whereIn('status', [
+            FinanceActivationService::STATUS_PENDING,
+            FinanceActivationService::STATUS_WAITING_VERIFICATION,
+            'pending_payment',
+            'pending_verification',
+        ])->count();
         $verifiedPayments = Payment::where('status', 'verified')->sum('total_amount');
 
-        $activeProfiles = PesantrenProfile::where('status_account', 'active')->get(['profile_level']);
+        $activeProfiles = PesantrenProfile::where('status_account', 'active')
+            ->where('status_payment', 'paid')
+            ->whereNotNull('nip')
+            ->get(['id', 'profile_level']);
         $levelStats     = ['basic' => 0, 'silver' => 0, 'gold' => 0, 'platinum' => 0];
         foreach ($activeProfiles as $p) {
             if (isset($levelStats[$p->profile_level])) {
@@ -71,7 +185,13 @@ class AdminController extends Controller
         $recentProfiles = PesantrenProfile::with('region:id,name')
             ->orderBy('created_at', 'desc')
             ->take(8)
-            ->get(['id', 'nama_pesantren', 'nip', 'status_account', 'profile_level', 'created_at', 'region_id']);
+            ->get(['id', 'nama_pesantren', 'nip', 'status_account', 'status_payment', 'profile_level', 'created_at', 'region_id']);
+
+        $latestPayments = Payment::whereIn('user_id', $recentProfiles->pluck('id'))
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->unique('user_id')
+            ->keyBy('user_id');
 
         return response()->json([
             'stats' => [
@@ -88,6 +208,8 @@ class AdminController extends Controller
                 'nip'            => $p->nip,
                 'region_name'    => $p->region?->name ?? '-',
                 'status_account' => $p->status_account,
+                'status_payment' => $p->status_payment,
+                'activation_state' => $this->determineActivationState($p, $latestPayments->get($p->id)),
                 'profile_level'  => $p->profile_level,
                 'created_at'     => $p->created_at,
             ]),
@@ -167,7 +289,7 @@ class AdminController extends Controller
         $this->assertPusat();
 
         $admins = Crew::with(['profile' => fn($q) => $q->with(['region:id,name', 'user.userRoles' => fn($q2) => $q2->with('roleDetail')->orderBy('created_at', 'desc')])])
-            ->whereHas('profile.user.userRoles.roleDetail', fn($q) => $q->whereIn('nama', ['Admin Pusat', 'Admin Wilayah', 'Admin Keuangan']))
+            ->whereHas('profile.user.userRoles.roleDetail', fn($q) => $q->whereIn('nama', ['Admin Pusat', 'Admin Regional', 'Admin Keuangan']))
             ->get();
 
         $regions = Region::orderBy('name')->get(['id', 'name']);
@@ -181,7 +303,7 @@ class AdminController extends Controller
                 'jabatan'     => $c->jabatan,
                 'region_id'   => $c->profile?->region_id,
                 'region_name' => $c->profile?->region?->name,
-                'role'        => $c->profile?->user?->userRoles->first()?->roleDetail?->nama,
+                'role'        => $this->normalizeRoleName($c->profile?->user?->userRoles->first()?->roleDetail?->nama),
             ]),
             'regions' => $regions,
         ]);
@@ -233,7 +355,7 @@ class AdminController extends Controller
             if ($data['role'] === 'admin_regional' && !empty($data['regionId'])) {
                 $oldAdmins = PesantrenProfile::where('region_id', $data['regionId'])
                     ->where('id', '!=', $data['profileId'])
-                    ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Wilayah'))
+                    ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Regional'))
                     ->get();
                 foreach ($oldAdmins as $old) {
                     $this->upsertUserRole($old->user_id, 'user');
@@ -266,13 +388,37 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
+        $operationalRoleIds = Role::whereIn('nama', [
+            'Pengguna Pesantren',
+            'Kru Pesantren',
+            'Koordinator',
+        ])->pluck('id');
+
+        $operationalUserIds = UserRole::whereIn('role_id', $operationalRoleIds)
+            ->pluck('user_id');
+
         $profiles = PesantrenProfile::with(['region:id,name', 'regency:id,name'])
-            ->orderBy('nama_pesantren')
+            ->whereIn('user_id', $operationalUserIds)
+            ->where(function ($query) {
+                $query->whereNotNull('nama_pesantren')
+                    ->orWhereNotNull('nama_media')
+                    ->orWhereNotNull('nip')
+                    ->orWhereHas('crews');
+            })
+            ->orderByRaw('COALESCE(nama_pesantren, nama_media, id)')
             ->get();
 
         $crews = Crew::with(['profile' => fn($q) => $q->with('region:id,name')])
+            ->whereIn('profile_id', $profiles->pluck('id'))
             ->orderBy('nama')
             ->get();
+
+        $profileIds = $profiles->pluck('id');
+        $latestPayments = Payment::whereIn('user_id', $profileIds)
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->unique('user_id')
+            ->keyBy('user_id');
 
         $regions = Region::orderBy('code')->get(['id', 'name', 'code']);
 
@@ -286,6 +432,8 @@ class AdminController extends Controller
                 'region_name'     => $p->region?->name,
                 'regency_name'    => $p->regency?->name,
                 'status_account'  => $p->status_account,
+                'status_payment'  => $p->status_payment,
+                'activation_state'=> $this->determineActivationState($p, $latestPayments->get($p->id)),
                 'profile_level'   => $p->profile_level,
                 'alamat_singkat'  => $p->alamat_singkat,
                 'nama_pengasuh'   => $p->nama_pengasuh,
@@ -295,12 +443,14 @@ class AdminController extends Controller
                 'id'            => $c->id,
                 'nama'          => $c->nama,
                 'niam'          => $c->niam,
+                'status'        => $c->status,
                 'jabatan'       => $c->jabatan,
                 'xp_level'      => $c->xp_level,
                 'profile_id'    => $c->profile_id,
                 'pesantren_name'=> $c->profile?->nama_pesantren,
                 'region_id'     => $c->profile?->region_id,
                 'region_name'   => $c->profile?->region?->name,
+                'status_account'=> $c->profile?->status_account,
             ]),
             'regions' => $regions,
         ]);
@@ -351,11 +501,13 @@ class AdminController extends Controller
         $data = $request->validate([
             'nama'    => 'nullable|string',
             'jabatan' => 'nullable|string',
+            'status'  => 'nullable|in:pending,active,inactive,alumni',
         ]);
 
         Crew::where('id', $id)->update(array_filter([
             'nama'    => $data['nama'] ?? null,
             'jabatan' => $data['jabatan'] ?? null,
+            'status'  => $data['status'] ?? null,
         ], fn($v) => $v !== null));
 
         return response()->json(['success' => true]);
@@ -624,20 +776,35 @@ class AdminController extends Controller
         $this->assertPusat();
 
         $regions = Region::orderBy('name')->get(['id', 'name', 'code']);
+        $cityRegionMap = DB::table('region_regencies')
+            ->select(['regency_id', 'region_id'])
+            ->get()
+            ->keyBy('regency_id');
         $cities  = Regency::orderBy('name')->get(['id', 'name', 'province_id']);
         $users   = PesantrenProfile::with(['region:id,name', 'user.userRoles.roleDetail'])->orderBy('nama_pesantren')
             ->get(['id', 'user_id', 'nama_pesantren', 'nama_pengasuh', 'region_id', 'status_account']);
 
         return response()->json([
             'regions' => $regions->map(fn($r) => ['id' => $r->id, 'name' => $r->name, 'code' => $r->code]),
-            'cities'  => $cities->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'province_id' => $c->province_id]),
+            'cities'  => $cities->map(fn($c) => [
+                'id' => $c->id,
+                'name' => $c->name,
+                'province_id' => $c->province_id,
+                'region_id' => $cityRegionMap->get($c->id)?->region_id,
+            ]),
             'users'   => $users->map(fn($u) => [
                 'id'             => $u->id,
+                'user_id'        => $u->user_id,
                 'nama_pesantren' => $u->nama_pesantren,
                 'nama_pengasuh'  => $u->nama_pengasuh,
+                'email'          => $u->user?->email,
+                'display_name'   => $u->nama_pesantren
+                    ?? $u->nama_pengasuh
+                    ?? $u->user?->email
+                    ?? 'Belum diisi',
                 'region_id'      => $u->region_id,
                 'region_name'    => $u->region?->name,
-                'role'           => $u->user?->activeRole()?->nama,
+                'role'           => $this->normalizeRoleName($u->user?->activeRole()?->nama),
                 'status_account' => $u->status_account,
             ]),
         ]);
@@ -672,12 +839,61 @@ class AdminController extends Controller
 
     public function addCity(Request $request)
     {
-        return response()->json(['message' => 'Data kabupaten/kota dikelola dari data wilayah Indonesia'], 405);
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'regionId' => 'required|uuid',
+            'name' => 'nullable|string',
+            'regencyId' => 'nullable|string|size:4',
+        ]);
+
+        $region = Region::find($data['regionId']);
+        if (!$region) {
+            return response()->json(['message' => 'Regional tidak ditemukan'], 404);
+        }
+
+        $regency = !empty($data['regencyId'])
+            ? Regency::find($data['regencyId'])
+            : Regency::whereRaw('UPPER(name) = ?', [strtoupper(trim((string) ($data['name'] ?? '')))])
+                ->first();
+
+        if (!$regency) {
+            return response()->json(['message' => 'Kabupaten/kota tidak ditemukan di master wilayah'], 404);
+        }
+
+        DB::table('region_regencies')->updateOrInsert(
+            ['regency_id' => $regency->id],
+            ['region_id' => $region->id]
+        );
+
+        return response()->json([
+            'city' => [
+                'id' => $regency->id,
+                'name' => $regency->name,
+                'province_id' => $regency->province_id,
+                'region_id' => $region->id,
+            ],
+        ]);
     }
 
     public function deleteCity(Request $request, string $id)
     {
-        return response()->json(['message' => 'Data kabupaten/kota dikelola dari data wilayah Indonesia'], 405);
+        $this->assertPusat();
+
+        $regency = Regency::find($id);
+        if (!$regency) {
+            return response()->json(['message' => 'Kabupaten/kota tidak ditemukan'], 404);
+        }
+
+        $deleted = DB::table('region_regencies')
+            ->where('regency_id', $id)
+            ->delete();
+
+        if (!$deleted) {
+            return response()->json(['message' => 'Mapping kota tidak ditemukan'], 404);
+        }
+
+        return response()->json(['success' => true]);
     }
 
     public function assignRegionalAdmin(Request $request)
@@ -685,14 +901,17 @@ class AdminController extends Controller
         $this->assertPusat();
 
         $data = $request->validate([
-            'userId'   => 'required|uuid',
+            'profileId' => 'nullable|uuid',
+            'userId'   => 'nullable|uuid',
             'regionId' => 'required|uuid',
         ]);
 
         $region = Region::find($data['regionId']);
         if (!$region) return response()->json(['message' => 'Regional tidak ditemukan'], 404);
 
-        $profile = PesantrenProfile::where('user_id', $data['userId'])->first();
+        $profile = !empty($data['profileId'])
+            ? PesantrenProfile::find($data['profileId'])
+            : PesantrenProfile::where('user_id', $data['userId'])->first();
         if (!$profile) return response()->json(['message' => 'Profil tidak ditemukan'], 404);
 
         DB::transaction(function () use ($profile, $data) {
@@ -716,6 +935,11 @@ class AdminController extends Controller
                 'id'              => $u->id,
                 'nama_pesantren'  => $u->nama_pesantren,
                 'nama_pengasuh'   => $u->nama_pengasuh,
+                'email'           => $u->user?->email,
+                'display_name'    => $u->nama_pesantren
+                    ?? $u->nama_pengasuh
+                    ?? $u->user?->email
+                    ?? 'Belum diisi',
                 'role'            => $u->user?->activeRole()?->nama,
                 'status_account'  => $u->status_account,
                 'status_payment'  => $u->status_payment,
@@ -812,6 +1036,289 @@ class AdminController extends Controller
         ]);
     }
 
+    public function hubResources(Request $request)
+    {
+        $user = auth()->user();
+        $roleName = $user?->activeRole()?->nama;
+        $scope = $this->normalizeRoleName($roleName);
+
+        $resources = HubResource::query()
+            ->where('is_published', true)
+            ->where(function ($query) use ($scope) {
+                $query->whereNull('visibility_scopes')
+                    ->orWhereJsonContains('visibility_scopes', 'all')
+                    ->orWhereJsonContains('visibility_scopes', $scope);
+            })
+            ->orderBy('sort_order')
+            ->orderByDesc('created_at')
+            ->get();
+
+        $categories = $resources
+            ->groupBy('category')
+            ->map(fn($items, $category) => [
+                'key' => $category,
+                'label' => Str::headline(str_replace('_', ' ', $category)),
+                'count' => $items->count(),
+            ])
+            ->values();
+
+        return response()->json([
+            'resources' => $resources->map(fn($resource) => $this->mapHubResource($resource))->values(),
+            'summary' => [
+                'total' => $resources->count(),
+                'categories' => $categories,
+            ],
+        ]);
+    }
+
+    public function adminHubResources(Request $request)
+    {
+        $this->assertPusat();
+
+        $resources = HubResource::query()
+            ->orderBy('sort_order')
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'resources' => $resources->map(fn($resource) => $this->mapHubResource($resource))->values(),
+        ]);
+    }
+
+    public function storeHubResource(Request $request)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'category' => 'required|string|max:100',
+            'resource_type' => 'required|in:file,link',
+            'visibility_scopes' => 'required|array|min:1',
+            'visibility_scopes.*' => 'in:all,user,crew,admin_pusat,admin_regional,admin_finance,coordinator',
+            'sort_order' => 'nullable|integer|min:0|max:9999',
+            'external_url' => 'nullable|url|required_if:resource_type,link',
+            'file' => 'nullable|file|max:10240|required_if:resource_type,file',
+        ]);
+
+        $actor = auth()->user();
+        $resourceId = (string) Str::uuid();
+        $fileUrl = null;
+        $mimeType = null;
+        $fileSize = null;
+
+        if (($data['resource_type'] ?? 'file') === 'file') {
+            $file = $request->file('file');
+            $path = 'hub-resources/' . now()->format('Y/m');
+            $filename = $resourceId . '.' . $file->getClientOriginalExtension();
+            $file->storeAs($path, $filename, 'public');
+            $fileUrl = '/uploads/' . $path . '/' . $filename;
+            $mimeType = $file->getClientMimeType();
+            $fileSize = $file->getSize();
+        }
+
+        $resource = HubResource::create([
+            'id' => $resourceId,
+            'title' => $data['title'],
+            'description' => $data['description'] ?? null,
+            'category' => Str::slug($data['category'], '_'),
+            'resource_type' => $data['resource_type'],
+            'file_url' => $fileUrl,
+            'external_url' => $data['resource_type'] === 'link' ? ($data['external_url'] ?? null) : null,
+            'mime_type' => $mimeType,
+            'file_size' => $fileSize,
+            'visibility_scopes' => array_values(array_unique($data['visibility_scopes'])),
+            'is_published' => true,
+            'sort_order' => (int) ($data['sort_order'] ?? 0),
+            'created_by' => $actor?->id,
+            'updated_by' => $actor?->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'resource' => $this->mapHubResource($resource),
+        ], 201);
+    }
+
+    public function militansiSummary(Request $request)
+    {
+        $this->assertPusat();
+
+        $levels = MilitansiLevel::orderBy('min_xp')->get(['id', 'name', 'min_xp', 'color']);
+        $rules = MilitansiRule::orderBy('sort_order')->orderBy('xp_value')->get(['id', 'action_key', 'label', 'xp_value', 'limit_type', 'is_active']);
+
+        $crews = Crew::with('profile:id,region_id,nama_pesantren')
+            ->whereNotNull('xp_level')
+            ->orderByDesc('xp_level')
+            ->orderBy('nama')
+            ->get(['id', 'profile_id', 'nama', 'jabatan', 'status', 'niam', 'xp_level']);
+
+        $regions = Region::get(['id', 'name'])->keyBy('id');
+
+        return response()->json([
+            'summary' => [
+                'total_crews' => $crews->count(),
+                'active_crews' => $crews->where('status', 'active')->count(),
+                'average_xp' => (int) round($crews->avg('xp_level') ?? 0),
+                'top_xp' => (int) ($crews->max('xp_level') ?? 0),
+            ],
+            'levels' => $levels,
+            'rules' => $rules,
+            'leaderboard' => $crews->take(50)->values()->map(function ($crew, $index) use ($levels, $regions) {
+                $level = $levels->filter(fn($item) => $crew->xp_level >= $item->min_xp)->sortByDesc('min_xp')->first();
+                return [
+                    'rank' => $index + 1,
+                    'name' => $crew->nama,
+                    'jabatan' => $crew->jabatan,
+                    'niam' => $crew->niam,
+                    'xp_level' => $crew->xp_level,
+                    'status' => $crew->status,
+                    'pesantren_name' => $crew->profile?->nama_pesantren,
+                    'region_name' => $regions->get($crew->profile?->region_id)?->name ?? '-',
+                    'level' => $level?->name ?? 'Muhibbin',
+                    'level_color' => $level?->color ?? '#94a3b8',
+                ];
+            }),
+        ]);
+    }
+
+    public function myMilitansiOverview(Request $request)
+    {
+        $user = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user?->id)->first();
+        $crew = Crew::where('profile_id', $profile?->id)->orderByDesc('xp_level')->first();
+        $levels = MilitansiLevel::orderBy('min_xp')->get(['id', 'name', 'min_xp', 'color']);
+        $rules = MilitansiRule::where('is_active', true)->orderBy('sort_order')->get(['id', 'action_key', 'label', 'xp_value', 'limit_type']);
+
+        $leaderboardCrews = Crew::with('profile:id,region_id,nama_pesantren')
+            ->orderByDesc('xp_level')
+            ->orderBy('nama')
+            ->take(10)
+            ->get(['id', 'profile_id', 'nama', 'jabatan', 'status', 'niam', 'xp_level']);
+
+        $myRank = $crew
+            ? Crew::where('xp_level', '>', $crew->xp_level)->count() + 1
+            : null;
+
+        $currentLevel = $crew
+            ? $levels->filter(fn($item) => $crew->xp_level >= $item->min_xp)->sortByDesc('min_xp')->first()
+            : $levels->first();
+
+        return response()->json([
+            'me' => $crew ? [
+                'id' => $crew->id,
+                'name' => $crew->nama,
+                'jabatan' => $crew->jabatan,
+                'niam' => $crew->niam,
+                'status' => $crew->status,
+                'xp_level' => $crew->xp_level,
+                'rank' => $myRank,
+                'level' => $currentLevel?->name ?? 'Muhibbin',
+                'level_color' => $currentLevel?->color ?? '#94a3b8',
+                'pesantren_name' => $profile?->nama_pesantren,
+            ] : null,
+            'levels' => $levels,
+            'rules' => $rules,
+            'leaderboard' => $leaderboardCrews->values()->map(function ($item, $index) use ($levels) {
+                $level = $levels->filter(fn($levelItem) => $item->xp_level >= $levelItem->min_xp)->sortByDesc('min_xp')->first();
+                return [
+                    'rank' => $index + 1,
+                    'name' => $item->nama,
+                    'jabatan' => $item->jabatan,
+                    'xp_level' => $item->xp_level,
+                    'status' => $item->status,
+                    'pesantren_name' => $item->profile?->nama_pesantren,
+                    'level' => $level?->name ?? 'Muhibbin',
+                    'level_color' => $level?->color ?? '#94a3b8',
+                ];
+            }),
+        ]);
+    }
+
+    public function deleteHubResource(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $resource = HubResource::find($id);
+        if (!$resource) {
+            return response()->json(['message' => 'Resource tidak ditemukan'], 404);
+        }
+
+        if ($resource->resource_type === 'file' && $resource->file_url && str_starts_with($resource->file_url, '/uploads/')) {
+            $relativePath = ltrim(str_replace('/uploads/', '', $resource->file_url), '/');
+            Storage::disk('public')->delete($relativePath);
+        }
+
+        $resource->delete();
+
+        return response()->json(['success' => true]);
+    }
+
+    public function auditLogs(Request $request)
+    {
+        $this->assertPusat();
+
+        $limit = max(1, min((int) $request->input('limit', 50), 200));
+
+        $logs = PaymentLog::with([
+            'payment.claim:id,pesantren_name,nama_pengelola,jenis_pengajuan,region_id',
+            'payment.user:id,nama_pesantren,nama_pengasuh,region_id',
+        ])
+            ->orderByDesc('created_at')
+            ->limit($limit)
+            ->get();
+
+        $actorIds = $logs->pluck('actor_user_id')->filter()->unique()->values();
+        $actors = User::with(['userRoles.roleDetail'])
+            ->whereIn('id', $actorIds)
+            ->get()
+            ->keyBy('id');
+
+        $crewIds = $logs
+            ->map(fn($log) => $log->payment && ($log->payment->reference_type === FinanceActivationService::REFERENCE_CREW)
+                ? $log->payment->reference_id
+                : null)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $crews = Crew::whereIn('id', $crewIds)->get(['id', 'nama'])->keyBy('id');
+
+        return response()->json([
+            'logs' => $logs->map(function ($log) use ($actors, $crews) {
+                $payment = $log->payment;
+                $actor = $log->actor_user_id ? $actors->get($log->actor_user_id) : null;
+                $roleName = $actor?->userRoles?->sortByDesc('created_at')->first()?->roleDetail?->nama;
+                $paymentType = $payment?->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION;
+                $targetType = $paymentType === FinanceActivationService::TYPE_CREW_ACTIVATION ? 'crew' : 'institution';
+                $targetName = $targetType === 'crew'
+                    ? ($crews->get($payment?->reference_id)?->nama ?? 'Kru')
+                    : ($payment?->claim?->pesantren_name ?? $payment?->user?->nama_pesantren ?? 'Pesantren');
+
+                return [
+                    'id' => $log->id,
+                    'timestamp' => $log->created_at,
+                    'actor_id' => $log->actor_user_id,
+                    'actor_name' => $actor?->email ?? 'System',
+                    'actor_role' => $this->normalizeRoleName($roleName),
+                    'actor_role_label' => $roleName ?? 'System',
+                    'action' => $log->action,
+                    'target_type' => $targetType,
+                    'target_id' => $payment?->reference_id ?? $payment?->user_id ?? $payment?->pesantren_claim_id ?? $log->payment_id,
+                    'target_name' => $targetName,
+                    'payment_id' => $log->payment_id,
+                    'payment_type' => $paymentType,
+                    'invoice_number' => $payment?->invoice_number,
+                    'from_status' => $log->from_status,
+                    'to_status' => $log->to_status,
+                    'details' => $log->notes,
+                    'region_id' => $payment?->claim?->region_id ?? $payment?->user?->region_id,
+                    'meta' => $log->meta,
+                ];
+            })->values(),
+        ]);
+    }
+
     public function regionDetail(Request $request, string $id)
     {
         $this->assertPusat();
@@ -824,7 +1331,7 @@ class AdminController extends Controller
             ->count();
         $pesantrenCount = PesantrenProfile::where('region_id', $id)->whereNotNull('nama_pesantren')->count();
         $adminCount   = PesantrenProfile::where('region_id', $id)
-            ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Wilayah'))
+            ->whereHas('user.userRoles.roleDetail', fn($q) => $q->where('nama', 'Admin Regional'))
             ->count();
         $recentProfiles = PesantrenProfile::where('region_id', $id)
             ->whereNotNull('nama_pesantren')
@@ -915,10 +1422,17 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $claims = PesantrenClaim::with('region:id,name')
+        $claims = PesantrenClaim::with(['region:id,name', 'profile:id,status_account,status_payment,nip'])
             // ->whereIn('status', ['regional_approved', 'pusat_approved'])
             ->orderBy('created_at', 'desc')
             ->get();
+
+        $claimIds = $claims->pluck('id');
+        $latestPayments = Payment::whereIn('pesantren_claim_id', $claimIds)
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->unique('pesantren_claim_id')
+            ->keyBy('pesantren_claim_id');
 
         return response()->json([
             'claims' => $claims->map(fn($c) => [
@@ -932,6 +1446,9 @@ class AdminController extends Controller
                 'region_id'       => $c->region_id,
                 'mpj_id_number'   => $c->mpj_id_number,
                 'region_name'     => $c->region?->name ?? '-',
+                'profile_status_account' => $c->profile?->status_account,
+                'profile_status_payment' => $c->profile?->status_payment,
+                'activation_state' => $this->determineActivationState($c->profile, $latestPayments->get($c->id), $c),
             ]),
         ]);
     }
@@ -942,31 +1459,48 @@ class AdminController extends Controller
 
         $payments = Payment::with([
             'claim:id,pesantren_name,nama_pengelola,jenis_pengajuan,region_id,mpj_id_number',
-            'user:id,no_wa_pendaftar',
-        ])->orderBy('created_at', 'desc')->get();
+            'user:id,no_wa_pendaftar,status_account,status_payment,nip,nama_pesantren,nama_pengasuh,region_id',
+            'paymentLogs:id,payment_id',
+        ])
+            ->when($request->filled('payment_type'), fn($query) => $query->where('payment_type', $request->input('payment_type')))
+            ->when($request->filled('payment_status'), fn($query) => $query->where('status', $request->input('payment_status')))
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         return response()->json([
             'payments' => $payments->map(fn($p) => [
                 'id'                  => $p->id,
                 'user_id'             => $p->user_id,
                 'pesantren_claim_id'  => $p->pesantren_claim_id,
+                'payment_type'        => $p->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION,
+                'reference_type'      => $p->reference_type ?? FinanceActivationService::REFERENCE_PROFILE,
+                'reference_id'        => $p->reference_id ?? $p->user_id,
+                'invoice_number'      => $p->invoice_number,
                 'base_amount'         => $p->base_amount,
                 'unique_code'         => $p->unique_code,
                 'total_amount'        => $p->total_amount,
                 'proof_file_url'      => $p->proof_file_url,
-                'status'              => $p->status,
+                'status'              => FinanceActivationService::normalizePaymentStatus($p->status),
                 'created_at'          => $p->created_at,
                 'rejection_reason'    => $p->rejection_reason,
                 'verified_by'         => $p->verified_by,
                 'verified_at'         => $p->verified_at,
+                'submitted_at'        => $p->submitted_at,
+                'activation_state'    => $this->determineActivationState($p->user, $p, $p->claim),
                 'pesantren_claims'    => [
-                    'pesantren_name'  => $p->claim?->pesantren_name,
-                    'nama_pengelola'  => $p->claim?->nama_pengelola,
-                    'jenis_pengajuan' => $p->claim?->jenis_pengajuan,
-                    'region_id'       => $p->claim?->region_id,
-                    'mpj_id_number'   => $p->claim?->mpj_id_number,
+                    'pesantren_name'  => $p->claim?->pesantren_name ?? $p->user?->nama_pesantren,
+                    'nama_pengelola'  => $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh,
+                    'jenis_pengajuan' => $p->claim?->jenis_pengajuan ?? ($p->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION),
+                    'region_id'       => $p->claim?->region_id ?? $p->user?->region_id,
+                    'mpj_id_number'   => $p->claim?->mpj_id_number ?? $p->user?->nip,
                 ],
-                'profiles' => ['no_wa_pendaftar' => $p->user?->no_wa_pendaftar],
+                'profiles' => [
+                    'no_wa_pendaftar' => $p->user?->no_wa_pendaftar,
+                    'status_account'  => $p->user?->status_account,
+                    'status_payment'  => $p->user?->status_payment,
+                    'nip'             => $p->user?->nip,
+                ],
+                'payment_logs_count'  => $p->paymentLogs->count(),
             ]),
         ]);
     }
@@ -976,12 +1510,36 @@ class AdminController extends Controller
         $this->assertPusatOrFinance();
 
         $data = $request->validate(['reason' => 'required|string|min:1']);
+        $actor = auth()->user();
+        $payment = Payment::find($id);
 
-        Payment::where('id', $id)->update([
-            'status'           => 'pending_payment',
+        if (!$payment) {
+            return response()->json(['message' => 'Payment not found'], 404);
+        }
+
+        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+        $payment->update([
+            'status'           => FinanceActivationService::STATUS_REJECTED,
             'rejection_reason' => $data['reason'],
-            'proof_file_url'   => null,
+            'rejected_by'      => $actor->id,
+            'rejected_at'      => now(),
         ]);
+
+        if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_EVENT_REGISTRATION) {
+            EventRegistration::where('id', $payment->reference_id)->update([
+                'ticket_status' => 'rejected',
+            ]);
+        }
+
+        FinanceActivationService::logPaymentStatusChange(
+            $payment->fresh(),
+            $actor->id,
+            'rejected',
+            $fromStatus,
+            FinanceActivationService::STATUS_REJECTED,
+            $data['reason']
+        );
 
         return response()->json(['success' => true]);
     }
@@ -991,24 +1549,59 @@ class AdminController extends Controller
         $user = auth()->user();
         $this->assertPusatOrFinance();
 
-        $payment = Payment::with(['claim', 'user:id,no_wa_pendaftar'])->find($id);
+        $payment = Payment::with(['claim', 'user:id,no_wa_pendaftar,nama_pesantren,status_account,status_payment,nip,region_id'])->find($id);
         if (!$payment) return response()->json(['message' => 'Payment not found'], 404);
+
+        if (($payment->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION) === FinanceActivationService::TYPE_CREW_ACTIVATION) {
+            $crew = FinanceActivationService::approveCrewActivation($payment, $user);
+
+            return response()->json([
+                'success' => true,
+                'niam' => $crew->niam,
+                'pesantrenName' => $payment->user?->nama_pesantren,
+                'activationState' => 'active',
+                'paymentType' => FinanceActivationService::TYPE_CREW_ACTIVATION,
+            ]);
+        }
+
+        if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_EVENT_REGISTRATION) {
+            $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+            $payment->update([
+                'status' => FinanceActivationService::STATUS_VERIFIED,
+                'verified_by' => $user->id,
+                'verified_at' => now(),
+                'rejection_reason' => null,
+            ]);
+
+            EventRegistration::where('id', $payment->reference_id)->update([
+                'ticket_status' => 'paid',
+            ]);
+
+            FinanceActivationService::logPaymentStatusChange(
+                $payment->fresh(),
+                $user->id,
+                'approved',
+                $fromStatus,
+                FinanceActivationService::STATUS_VERIFIED,
+                'Pembayaran registrasi event diverifikasi.'
+            );
+
+            return response()->json([
+                'success' => true,
+                'paymentType' => FinanceActivationService::TYPE_EVENT_REGISTRATION,
+                'activationState' => 'paid',
+            ]);
+        }
+
         if (!$payment->claim?->region_id) return response()->json(['message' => 'Region ID tidak ditemukan'], 422);
 
         $nip = DB::transaction(function () use ($payment, $user) {
-            $region = Region::find($payment->claim->region_id);
-            if (!$region || !preg_match('/^\d{2}$/', $region->code)) {
-                abort(422, 'Kode RR Belum Valid');
-            }
-
-            $count    = PesantrenClaim::where('region_id', $payment->claim->region_id)
-                ->whereNotNull('mpj_id_number')->count();
-            $year     = now()->format('y');
-            $seq      = str_pad($count + 1, 3, '0', STR_PAD_LEFT);
-            $generatedNip = "{$year}{$region->code}{$seq}";
+            $generatedNip = $this->issueInstitutionNip($payment);
+            $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
 
             $payment->update([
-                'status'           => 'verified',
+                'status'           => FinanceActivationService::STATUS_VERIFIED,
                 'verified_by'      => $user->id,
                 'verified_at'      => now(),
                 'rejection_reason' => null,
@@ -1028,6 +1621,17 @@ class AdminController extends Controller
                 'nama_pesantren' => $payment->claim->pesantren_name,
             ]);
 
+            $this->activatePrimaryCrew($payment, $generatedNip);
+
+            FinanceActivationService::logPaymentStatusChange(
+                $payment->fresh(),
+                $user->id,
+                'approved',
+                $fromStatus,
+                FinanceActivationService::STATUS_VERIFIED,
+                'Pembayaran aktivasi institusi diverifikasi.'
+            );
+
             return $generatedNip;
         });
 
@@ -1036,7 +1640,91 @@ class AdminController extends Controller
             'nip'           => $nip,
             'phoneNumber'   => $payment->user?->no_wa_pendaftar,
             'pesantrenName' => $payment->claim->pesantren_name,
+            'activationState' => 'active',
         ]);
+    }
+
+    public function paymentLogs(Request $request, string $id)
+    {
+        $this->assertPusatOrFinance();
+
+        $payment = Payment::with('paymentLogs')->find($id);
+        if (!$payment) {
+            return response()->json(['message' => 'Payment not found'], 404);
+        }
+
+        return response()->json([
+            'logs' => $payment->paymentLogs
+                ->sortByDesc('created_at')
+                ->values()
+                ->map(fn($log) => [
+                    'id' => $log->id,
+                    'action' => $log->action,
+                    'from_status' => $log->from_status,
+                    'to_status' => $log->to_status,
+                    'notes' => $log->notes,
+                    'meta' => $log->meta,
+                    'created_at' => $log->created_at,
+                ]),
+        ]);
+    }
+
+    public function cancelPayment(Request $request, string $id)
+    {
+        $this->assertPusatOrFinance();
+
+        $payment = Payment::find($id);
+        if (!$payment) {
+            return response()->json(['message' => 'Payment not found'], 404);
+        }
+
+        $actor = auth()->user();
+        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+        $payment->update([
+            'status' => FinanceActivationService::STATUS_CANCELLED,
+            'cancelled_at' => now(),
+        ]);
+
+        FinanceActivationService::logPaymentStatusChange(
+            $payment->fresh(),
+            $actor?->id,
+            'cancelled',
+            $fromStatus,
+            FinanceActivationService::STATUS_CANCELLED,
+            'Invoice dibatalkan oleh admin.'
+        );
+
+        return response()->json(['success' => true]);
+    }
+
+    public function expirePayment(Request $request, string $id)
+    {
+        $this->assertPusatOrFinance();
+
+        $payment = Payment::find($id);
+        if (!$payment) {
+            return response()->json(['message' => 'Payment not found'], 404);
+        }
+
+        $actor = auth()->user();
+        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+        $payment->update([
+            'status' => FinanceActivationService::STATUS_EXPIRED,
+            'expired_at' => now(),
+        ]);
+
+        FinanceActivationService::logPaymentStatusChange(
+            $payment->fresh(),
+            $actor?->id,
+            'expired',
+            $fromStatus,
+            FinanceActivationService::STATUS_EXPIRED,
+            'Invoice kedaluwarsa.'
+        );
+
+        return response()->json(['success' => true]);
     }
 
     public function levelingProfiles(Request $request)
@@ -1160,9 +1848,14 @@ class AdminController extends Controller
 
         return response()->json([
             'total_income'         => (int) Payment::where('status', 'verified')->sum('total_amount'),
-            'pending_verification' => Payment::where('status', 'pending_verification')->count(),
+            'pending_verification' => Payment::whereIn('status', [
+                FinanceActivationService::STATUS_PENDING,
+                FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                'pending_payment',
+                'pending_verification',
+            ])->count(),
             'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
-            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('verified_at', today())->count(),
+            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('updated_at', today())->count(),
         ]);
     }
 }
