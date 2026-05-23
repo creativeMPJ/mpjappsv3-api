@@ -86,7 +86,7 @@ Seeder akan membuat user-user berikut (password semua: `bismillah`):
 Data wilayah (provinsi, kabupaten/kota, kecamatan, desa) diambil dari:
 **https://github.com/edwardsamuel/Wilayah-Administratif-Indonesia**
 
-Jalankan SQL berikut untuk mengisi tabel wilayah: asd
+Jalankan SQL berikut untuk mengisi tabel wilayah: oke
 
 ```bash
 curl -s https://raw.githubusercontent.com/edwardsamuel/Wilayah-Administratif-Indonesia/refs/heads/master/mysql/indonesia.sql \
