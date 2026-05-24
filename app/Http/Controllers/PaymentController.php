@@ -39,27 +39,6 @@ class PaymentController extends Controller
             return response()->json(['accessDeniedReason' => 'Status pengajuan tidak valid untuk pembayaran.']);
         }
 
-        if ($claim->jenis_pengajuan === 'klaim') {
-            return response()->json([
-                'redirectTo' => '/user-dashboard',
-                'claim' => [
-                    'id'               => $claim->id,
-                    'pesantren_name'   => $claim->pesantren_name,
-                    'jenis_pengajuan'  => $claim->jenis_pengajuan,
-                    'status'           => $claim->status,
-                ],
-                'profile' => $profile ? [
-                    'id' => $profile->id,
-                    'nama_pesantren' => $profile->nama_pesantren,
-                    'nama_media' => $profile->nama_media,
-                    'status_account' => $profile->status_account,
-                    'status_payment' => $profile->status_payment,
-                    'profile_level' => $profile->profile_level,
-                    'nip' => $profile->nip,
-                ] : null,
-            ]);
-        }
-
         $priceKey  = $claim->jenis_pengajuan === 'klaim' ? 'claim_base_price' : 'registration_base_price';
         $baseAmount = (int) (SystemSetting::getValue($priceKey, 50000));
 
@@ -74,7 +53,7 @@ class PaymentController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$payment && $claim->status === 'regional_approved' && $claim->jenis_pengajuan !== 'klaim') {
+        if (!$payment && $claim->status === 'regional_approved') {
             $payment = FinanceActivationService::ensureInstitutionActivationInvoice($profile, $claim);
         }
 
