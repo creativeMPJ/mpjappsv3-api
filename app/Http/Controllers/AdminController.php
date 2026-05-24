@@ -166,8 +166,6 @@ class AdminController extends Controller
         $pendingPayments  = Payment::whereIn('status', [
             FinanceActivationService::STATUS_PENDING,
             FinanceActivationService::STATUS_WAITING_VERIFICATION,
-            'pending_payment',
-            'pending_verification',
         ])->count();
         $verifiedPayments = Payment::where('status', 'verified')->sum('total_amount');
 
@@ -1851,8 +1849,6 @@ class AdminController extends Controller
             'pending_verification' => Payment::whereIn('status', [
                 FinanceActivationService::STATUS_PENDING,
                 FinanceActivationService::STATUS_WAITING_VERIFICATION,
-                'pending_payment',
-                'pending_verification',
             ])->count(),
             'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
             'rejected_today'       => Payment::where('status', 'rejected')->whereDate('updated_at', today())->count(),

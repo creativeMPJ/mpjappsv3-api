@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Crew;
 use App\Models\FollowUpLog;
+use App\Support\FinanceActivationService;
 use App\Models\HubResource;
 use App\Models\MilitansiLevel;
 use App\Models\Payment;
@@ -201,7 +202,7 @@ class RegionalController extends Controller
                         'base_amount'        => $baseAmount,
                         'unique_code'        => $uniqueCode,
                         'total_amount'       => $baseAmount + $uniqueCode,
-                        'status'             => 'pending_payment',
+                        'status'             => FinanceActivationService::STATUS_PENDING,
                     ]);
                 }
             }
