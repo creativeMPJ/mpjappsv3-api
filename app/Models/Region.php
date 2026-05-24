@@ -10,7 +10,7 @@ class Region extends Model
     public $incrementing = false;
     public $timestamps = false;
 
-    protected $fillable = ['id', 'name', 'code'];
+    protected $fillable = ['id', 'name', 'code', 'whatsapp_number'];
 
     public function regencies()
     {

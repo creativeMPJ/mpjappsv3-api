@@ -212,6 +212,7 @@ Route::middleware('auth:api')->group(function () {
         // Regional management
         Route::get('/regional-management/data',            [AdminController::class, 'regionalManagementData']);
         Route::post('/regional-management/regions',        [AdminController::class, 'addRegion']);
+        Route::put('/regional-management/regions/{id}',    [AdminController::class, 'updateRegion']);
         Route::delete('/regional-management/regions/{id}', [AdminController::class, 'deleteRegion']);
         Route::post('/regional-management/cities',         [AdminController::class, 'addCity']);
         Route::delete('/regional-management/cities/{id}',  [AdminController::class, 'deleteCity']);
