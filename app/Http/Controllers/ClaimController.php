@@ -169,7 +169,7 @@ class ClaimController extends Controller
             'pesantren_claim_id'  => $otp->pesantren_claim_id,
             'claim_status'        => $claim?->status,
             'next_step'           => $claim && in_array($claim->status, ['regional_approved', 'approved', 'pusat_approved'], true)
-                ? 'payment'
+                ? ($claim->jenis_pengajuan === 'klaim' ? 'dashboard' : 'payment')
                 : 'wait_regional_review',
         ]);
     }

@@ -161,14 +161,17 @@ class RegionalController extends Controller
                 'notes'                => null,
             ]);
 
-            PesantrenProfile::where('id', $claim->user_id)->update([
-                'status_account' => 'pending',
-                'status_payment' => 'unpaid',
-            ]);
-
             if ($claim->jenis_pengajuan === 'klaim') {
-                // klaim: cukup aktifkan, tidak perlu payment
+                PesantrenProfile::where('id', $claim->user_id)->update([
+                    'status_account' => 'active',
+                    'status_payment' => 'unpaid',
+                ]);
             } else {
+                PesantrenProfile::where('id', $claim->user_id)->update([
+                    'status_account' => 'pending',
+                    'status_payment' => 'unpaid',
+                ]);
+
                 $existingPayment = Payment::where('pesantren_claim_id', $claim->id)->first();
 
                 if (!$existingPayment) {
