@@ -147,15 +147,30 @@ class ClaimController extends Controller
 
         $otp->update(['is_verified' => true, 'verified_at' => now()]);
 
+        $claim = null;
         if ($otp->pesantren_claim_id) {
-            PesantrenClaim::where('id', $otp->pesantren_claim_id)
-                ->update(['status' => 'pending', 'updated_at' => now()]);
+            $claim = PesantrenClaim::find($otp->pesantren_claim_id);
+
+            if ($claim) {
+                $nextStatus = in_array($claim->status, ['regional_approved', 'approved', 'pusat_approved'], true)
+                    ? $claim->status
+                    : 'pending';
+
+                $claim->update([
+                    'status' => $nextStatus,
+                    'updated_at' => now(),
+                ]);
+            }
         }
 
         return response()->json([
             'success'             => true,
             'message'             => 'Verifikasi berhasil',
             'pesantren_claim_id'  => $otp->pesantren_claim_id,
+            'claim_status'        => $claim?->status,
+            'next_step'           => $claim && in_array($claim->status, ['regional_approved', 'approved', 'pusat_approved'], true)
+                ? 'payment'
+                : 'wait_regional_review',
         ]);
     }
 

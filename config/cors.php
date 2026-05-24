@@ -22,7 +22,12 @@ return [
     'allowed_origins' => [
         'http://mpj.demotesting.fun',
         'https://mpj.demotesting.fun',
+        'http://mpj-app.demotesting.fun',
+        'https://mpj-app.demotesting.fun',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
         'http://localhost:8080',
+        'http://127.0.0.1:8080',
         'http://127.0.0.1:4173',
         'http://localhost:4173',
         'http://127.0.0.1:5173',

@@ -45,6 +45,10 @@ class MediaController extends Controller
                 'id'              => $c->id,
                 'nama'            => $c->nama,
                 'jabatan'         => $c->jabatan,
+                'email'           => $c->email,
+                'whatsapp'        => $c->no_wa,
+                'jabatan_media'   => $c->jabatan_media,
+                'catatan'         => $c->catatan,
                 'niam'            => $c->niam,
                 'status'          => $c->status,
                 'xp_level'        => $c->xp_level,
@@ -66,6 +70,10 @@ class MediaController extends Controller
             'nama'          => 'required|string',
             'jabatanCodeId' => 'nullable|uuid',
             'jabatan'       => 'nullable|string',
+            'email'         => 'nullable|email|max:255',
+            'whatsapp'      => 'nullable|string|max:30',
+            'jabatanMedia'  => 'nullable|string|max:255',
+            'catatan'       => 'nullable|string|max:1000',
         ]);
 
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
@@ -90,6 +98,10 @@ class MediaController extends Controller
             'profile_id'      => $profile->id,
             'nama'            => $data['nama'],
             'jabatan'         => $jabatanName,
+            'email'           => $data['email'] ?? null,
+            'no_wa'           => $data['whatsapp'] ?? null,
+            'jabatan_media'   => $data['jabatanMedia'] ?? null,
+            'catatan'         => $data['catatan'] ?? null,
             'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
             'niam'            => null,
             'status'          => 'pending',
@@ -104,6 +116,10 @@ class MediaController extends Controller
                 'id'              => $crew->id,
                 'nama'            => $crew->nama,
                 'jabatan'         => $crew->jabatan,
+                'email'           => $crew->email,
+                'whatsapp'        => $crew->no_wa,
+                'jabatan_media'   => $crew->jabatan_media,
+                'catatan'         => $crew->catatan,
                 'niam'            => $crew->niam,
                 'status'          => $crew->status,
                 'xp_level'        => $crew->xp_level,
@@ -125,20 +141,35 @@ class MediaController extends Controller
         $user    = auth()->user();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
         $data = $request->validate([
-            'nama'    => 'required|string',
-            'jabatan' => 'nullable|string',
+            'nama'         => 'required|string',
+            'jabatan'      => 'nullable|string',
+            'email'        => 'nullable|email|max:255',
+            'whatsapp'     => 'nullable|string|max:30',
+            'jabatanMedia' => 'nullable|string|max:255',
+            'catatan'      => 'nullable|string|max:1000',
         ]);
 
         $crew = Crew::where('id', $id)->where('profile_id', $profile?->id)->first();
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
 
-        $crew->update(['nama' => $data['nama'], 'jabatan' => $data['jabatan'] ?? null]);
+        $crew->update([
+            'nama'          => $data['nama'],
+            'jabatan'       => $data['jabatan'] ?? null,
+            'email'         => $data['email'] ?? null,
+            'no_wa'         => $data['whatsapp'] ?? null,
+            'jabatan_media' => $data['jabatanMedia'] ?? null,
+            'catatan'       => $data['catatan'] ?? null,
+        ]);
 
         return response()->json([
             'crew' => [
                 'id'      => $crew->id,
                 'nama'    => $crew->nama,
                 'jabatan' => $crew->jabatan,
+                'email'   => $crew->email,
+                'whatsapp'=> $crew->no_wa,
+                'jabatan_media' => $crew->jabatan_media,
+                'catatan' => $crew->catatan,
                 'niam'    => $crew->niam,
                 'status'  => $crew->status,
                 'xp_level'=> $crew->xp_level,

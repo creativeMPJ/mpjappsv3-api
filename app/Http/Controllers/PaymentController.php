@@ -35,11 +35,7 @@ class PaymentController extends Controller
             return response()->json(['accessDeniedReason' => 'Pengajuan Anda ditolak oleh Admin Wilayah. Silakan hubungi admin untuk informasi lebih lanjut.']);
         }
 
-        if (in_array($claim->status, ['approved', 'pusat_approved'])) {
-            return response()->json(['redirectTo' => '/cms']);
-        }
-
-        if ($claim->status !== 'regional_approved') {
+        if (!in_array($claim->status, ['regional_approved', 'approved', 'pusat_approved'])) {
             return response()->json(['accessDeniedReason' => 'Status pengajuan tidak valid untuk pembayaran.']);
         }
 
@@ -57,15 +53,53 @@ class PaymentController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$payment) {
+        if (!$payment && $claim->status === 'regional_approved') {
             $payment = FinanceActivationService::ensureInstitutionActivationInvoice($profile, $claim);
         }
 
+        if (!$payment && in_array($claim->status, ['approved', 'pusat_approved'])) {
+            return response()->json([
+                'redirectTo' => '/cms',
+                'claim' => [
+                    'id'               => $claim->id,
+                    'pesantren_name'   => $claim->pesantren_name,
+                    'jenis_pengajuan'  => $claim->jenis_pengajuan,
+                    'status'           => $claim->status,
+                ],
+                'profile' => $profile ? [
+                    'id' => $profile->id,
+                    'nama_pesantren' => $profile->nama_pesantren,
+                    'nama_media' => $profile->nama_media,
+                    'status_account' => $profile->status_account,
+                    'status_payment' => $profile->status_payment,
+                    'profile_level' => $profile->profile_level,
+                    'nip' => $profile->nip,
+                ] : null,
+            ]);
+        }
+
         $normalizedStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+        $claimPayload = [
+            'id'               => $claim->id,
+            'pesantren_name'   => $claim->pesantren_name,
+            'jenis_pengajuan'  => $claim->jenis_pengajuan,
+            'status'           => $claim->status,
+        ];
+        $profilePayload = $profile ? [
+            'id' => $profile->id,
+            'nama_pesantren' => $profile->nama_pesantren,
+            'nama_media' => $profile->nama_media,
+            'status_account' => $profile->status_account,
+            'status_payment' => $profile->status_payment,
+            'profile_level' => $profile->profile_level,
+            'nip' => $profile->nip,
+        ] : null;
 
         if ($normalizedStatus === FinanceActivationService::STATUS_WAITING_VERIFICATION) {
             return response()->json([
                 'redirectTo' => '/payment-pending',
+                'claim' => $claimPayload,
+                'profile' => $profilePayload,
                 'payment'    => [
                     'id' => $payment->id,
                     'status' => $normalizedStatus,
@@ -80,6 +114,8 @@ class PaymentController extends Controller
         if ($normalizedStatus === FinanceActivationService::STATUS_VERIFIED) {
             return response()->json([
                 'redirectTo' => '/cms',
+                'claim' => $claimPayload,
+                'profile' => $profilePayload,
                 'payment'    => [
                     'id' => $payment->id,
                     'status' => $normalizedStatus,
@@ -117,12 +153,8 @@ class PaymentController extends Controller
                 'invoiceNumber'   => $payment->invoice_number,
                 'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
             ],
-            'claim'   => [
-                'id'               => $claim->id,
-                'pesantren_name'   => $claim->pesantren_name,
-                'jenis_pengajuan'  => $claim->jenis_pengajuan,
-                'status'           => $claim->status,
-            ],
+            'claim'   => $claimPayload,
+            'profile' => $profilePayload,
             'crewInvoices' => $crewInvoices,
             'bankInfo' => [
                 'bank'          => (string) $bankName,
