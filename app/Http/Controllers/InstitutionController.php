@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Crew;
 use App\Models\PesantrenClaim;
+use App\Models\PesantrenDirectory;
 use App\Models\PesantrenProfile;
 use App\Models\Regency;
 use Illuminate\Http\Request;
@@ -57,7 +58,9 @@ class InstitutionController extends Controller
         $user = auth()->user();
 
         $data = $request->validate([
-            'namaPesantren'    => 'required|string',
+            'jenisPengajuan'   => 'nullable|in:klaim,pesantren_baru',
+            'pesantrenId'      => 'nullable|uuid',
+            'namaPesantren'    => 'required_if:jenisPengajuan,pesantren_baru|nullable|string',
             'namaPengasuh'     => 'required|string',
             'alamatLengkap'    => 'required|string',
             'regencyId'        => 'required|string|size:4',
@@ -66,21 +69,35 @@ class InstitutionController extends Controller
             'emailPengelola'   => 'required|email',
             'noWhatsapp'       => 'required|string|min:8',
             'dokumenBuktiUrl'  => 'nullable|string',
-            'jenisPengajuan'   => 'nullable|in:klaim,pesantren_baru',
-            'pesantrenId'      => 'nullable|uuid',
         ]);
+
+        $jenisPengajuan = $data['jenisPengajuan'] ?? 'pesantren_baru';
+        $directory = null;
+
+        if ($jenisPengajuan === 'klaim') {
+            if (empty($data['pesantrenId'])) {
+                return response()->json(['message' => 'Pesantren wajib dipilih dari direktori'], 422);
+            }
+
+            $directory = PesantrenDirectory::whereNull('deleted_at')->find($data['pesantrenId']);
+            if (!$directory) {
+                return response()->json(['message' => 'Pesantren direktori tidak ditemukan'], 404);
+            }
+        }
+
+        $namaPesantren = $directory?->nama_pesantren ?? $data['namaPesantren'];
 
         $regency = Regency::find($data['regencyId']);
         if (!$regency) return response()->json(['message' => 'Regency not found'], 404);
 
         $region = $regency->regions()->first();
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $regency, $region) {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $regency, $region, $namaPesantren, $jenisPengajuan) {
             $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
             if ($profile) {
                 $profile->update([
-                    'nama_pesantren' => $data['namaPesantren'],
+                    'nama_pesantren' => $namaPesantren,
                     'nama_pengasuh'  => $data['namaPengasuh'],
                     'alamat_singkat' => $data['alamatLengkap'],
                     'regency_id'     => $regency->id,
@@ -96,9 +113,9 @@ class InstitutionController extends Controller
             $existing = $profile ? PesantrenClaim::where('user_id', $profile->id)->first() : null;
 
             $claimData = [
-                'pesantren_name'     => $data['namaPesantren'],
+                'pesantren_name'     => $namaPesantren,
                 'status'             => 'pending',
-                'jenis_pengajuan'    => $data['jenisPengajuan'] ?? 'pesantren_baru',
+                'jenis_pengajuan'    => $jenisPengajuan,
                 'pesantren_directory_id' => $data['pesantrenId'] ?? null,
                 'region_id'          => $region?->id,
                 'kecamatan'          => $data['kecamatan'],
