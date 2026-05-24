@@ -79,9 +79,13 @@ class MediaController extends Controller
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
         if (!$profile) return response()->json(['message' => 'Profile tidak ditemukan'], 404);
 
-        $count = Crew::where('profile_id', $profile->id)->count();
-        if ($count >= 3) {
-            return response()->json(['message' => 'Slot gratis sudah penuh (3/3). Upgrade untuk menambah kru.'], 403);
+        $freeSlotQuantity = (int) \App\Models\SystemSetting::getValue('free_slot_quantity', 3);
+        $count = Crew::where('profile_id', $profile->id)
+            ->whereIn('status', ['active', 'pending'])
+            ->count();
+
+        if ($count >= $freeSlotQuantity) {
+            return response()->json(['message' => "Slot gratis sudah penuh ({$freeSlotQuantity}/{$freeSlotQuantity}). Upgrade untuk menambah kru."], 403);
         }
 
         $jabatanName = $data['jabatan'] ?? null;
@@ -93,6 +97,7 @@ class MediaController extends Controller
             }
         }
 
+        // Slot gratis: crew langsung aktif, tanpa invoice pembayaran
         $crew = Crew::create([
             'id'              => Str::uuid(),
             'profile_id'      => $profile->id,
@@ -104,10 +109,14 @@ class MediaController extends Controller
             'catatan'         => $data['catatan'] ?? null,
             'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
             'niam'            => null,
-            'status'          => 'pending',
+            'status'          => 'active',
         ]);
 
-        $invoice = FinanceActivationService::ensureCrewActivationInvoice($profile, $crew, $user);
+        // Generate NIAM langsung jika pesantren sudah punya NIP
+        if ($profile->nip) {
+            $niam = FinanceActivationService::issueCrewNiam($profile, $crew);
+            $crew->update(['niam' => $niam]);
+        }
 
         $crew->load('jabatanCode:id,name,code');
 
@@ -126,13 +135,7 @@ class MediaController extends Controller
                 'jabatan_code_id' => $crew->jabatan_code_id,
                 'jabatan_code'    => $crew->jabatanCode,
             ],
-            'invoice' => [
-                'id' => $invoice->id,
-                'status' => FinanceActivationService::normalizePaymentStatus($invoice->status),
-                'paymentType' => $invoice->payment_type,
-                'invoiceNumber' => $invoice->invoice_number,
-                'totalAmount' => $invoice->total_amount,
-            ],
+            'invoice' => null,
         ]);
     }
 
