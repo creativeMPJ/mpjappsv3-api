@@ -143,18 +143,13 @@ class RegionalController extends Controller
     public function approveClaim(Request $request, string $id)
     {
         $regionId = $this->assertRegional();
-        $user     = auth()->user();
-
-        $data = $request->validate([
-            'pricingPackageId' => 'nullable|uuid',
-        ]);
 
         $claim = PesantrenClaim::find($id);
         if (!$claim || $claim->region_id !== $regionId) {
             return response()->json(['message' => 'Claim tidak ditemukan'], 404);
         }
 
-        DB::transaction(function () use ($claim, $data, $user) {
+        DB::transaction(function () use ($claim) {
             $claim->update([
                 'status'               => 'regional_approved',
                 'regional_approved_at' => now(),
@@ -171,43 +166,8 @@ class RegionalController extends Controller
                     'status_account' => 'pending',
                     'status_payment' => 'unpaid',
                 ]);
-
-                $existingPayment = Payment::where('pesantren_claim_id', $claim->id)->first();
-
-                if (!$existingPayment) {
-                    $baseAmount       = 50000;
-                    $pricingPackageId = null;
-
-                    if (!empty($data['pricingPackageId'])) {
-                        $pkg = PricingPackage::where('id', $data['pricingPackageId'])->where('is_active', true)->first();
-                        if ($pkg) {
-                            $baseAmount       = $pkg->harga_diskon ?? $pkg->harga_paket;
-                            $pricingPackageId = $pkg->id;
-                        }
-                    } else {
-                        $defaultPkg = PricingPackage::where('category', 'registration')
-                            ->where('is_active', true)
-                            ->orderBy('created_at')
-                            ->first();
-                        if ($defaultPkg) {
-                            $baseAmount       = $defaultPkg->harga_diskon ?? $defaultPkg->harga_paket;
-                            $pricingPackageId = $defaultPkg->id;
-                        }
-                    }
-
-                    $uniqueCode = random_int(1, 999);
-
-                    Payment::create([
-                        'id'                 => Str::uuid(),
-                        'user_id'            => $claim->user_id,
-                        'pesantren_claim_id' => $claim->id,
-                        'pricing_package_id' => $pricingPackageId,
-                        'base_amount'        => $baseAmount,
-                        'unique_code'        => $uniqueCode,
-                        'total_amount'       => $baseAmount + $uniqueCode,
-                        'status'             => FinanceActivationService::STATUS_PENDING,
-                    ]);
-                }
+                // Payment dibuat secara lazy oleh ensureInstitutionActivationInvoice()
+                // saat user pertama kali mengakses halaman pembayaran (/api/payments/summary).
             }
         });
 
