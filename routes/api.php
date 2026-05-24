@@ -81,6 +81,7 @@ Route::prefix('public')->group(function () {
     Route::get('/cities/{id}/region',              [PublicController::class, 'cityRegion']);
     Route::get('/directory',                       [PublicController::class, 'directory']);
     Route::get('/directory-search',                [PublicController::class, 'directorySearch']);
+    Route::get('/directory/{id}',                   [PublicController::class, 'directoryDetail']);
     Route::get('/niam-lookup',                     [PublicController::class, 'lookupNiam']);
     Route::get('/pesantren',                       [PublicController::class, 'pesantrenSearch']);
     Route::get('/pesantren/{nip}/profile',         [PublicController::class, 'pesantrenProfile']);

@@ -216,6 +216,45 @@ class PublicController extends Controller
         ]);
     }
 
+    public function directoryDetail(Request $request, string $id)
+    {
+        $pesantren = PesantrenDirectory::with(["region:id,name,code", "regency:id,name,province_id"])
+            ->whereNull("deleted_at")
+            ->find($id);
+
+        if (!$pesantren) {
+            return response()->json(["message" => "Pesantren tidak ditemukan"], 404);
+        }
+
+        return response()->json([
+            "pesantren" => [
+                "id"              => $pesantren->id,
+                "nama_pesantren"  => $pesantren->nama_pesantren,
+                "nama_pengasuh"   => $pesantren->nama_pengasuh,
+                "alamat"          => $pesantren->alamat,
+                "kota_kabupaten"  => $pesantren->kota_kabupaten,
+                "regency_id"      => $pesantren->regency_id,
+                "region_id"       => $pesantren->region_id,
+                "no_wa_admin"     => $pesantren->no_wa_admin,
+                "email_admin"     => $pesantren->email_admin,
+                "maps_link"       => $pesantren->maps_link,
+                "kode_regional"   => $pesantren->kode_regional,
+                "is_claimed"      => $pesantren->is_claimed,
+                "source_year"     => $pesantren->source_year,
+                "region"          => $pesantren->region ? [
+                    "id" => $pesantren->region->id,
+                    "name" => $pesantren->region->name,
+                    "code" => $pesantren->region->code,
+                ] : null,
+                "regency"         => $pesantren->regency ? [
+                    "id" => $pesantren->regency->id,
+                    "name" => $pesantren->regency->name,
+                    "province_id" => $pesantren->regency->province_id,
+                ] : null,
+            ],
+        ]);
+    }
+
     public function lookupNiam(Request $request)
     {
         $niam = trim((string) $request->query('niam', ''));
