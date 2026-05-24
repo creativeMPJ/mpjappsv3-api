@@ -2,15 +2,43 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Crew;
 use App\Models\PesantrenProfile;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class ProfileController extends Controller
 {
+    /**
+     * Resolve PesantrenProfile untuk user yang sedang login.
+     * Mendukung dua jenis user: pesantren owner dan crew member.
+     */
+    private function resolveProfile(User $user, bool $withRelations = false): ?PesantrenProfile
+    {
+        /** @var PesantrenProfile|null $profile */
+        $profile = $withRelations
+            ? PesantrenProfile::with(['region', 'regency'])->where('user_id', $user->id)->first()
+            : PesantrenProfile::where('user_id', $user->id)->first();
+
+        // Crew member: tidak punya profile sendiri, ambil dari pesantren tempat bertugas
+        if (!$profile && $user->reff_type === 'crew' && $user->reff_id) {
+            /** @var Crew|null $crew */
+            $crew = Crew::find($user->reff_id);
+            if ($crew) {
+                /** @var PesantrenProfile|null $profile */
+                $profile = $withRelations
+                    ? PesantrenProfile::with(['region', 'regency'])->find($crew->profile_id)
+                    : PesantrenProfile::find($crew->profile_id);
+            }
+        }
+
+        return $profile;
+    }
+
     public function getPesantren(Request $request)
     {
         $user    = auth()->user();
-        $profile = PesantrenProfile::with(['region', 'regency'])->where('user_id', $user->id)->first();
+        $profile = $this->resolveProfile($user, withRelations: true);
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);
@@ -52,7 +80,7 @@ class ProfileController extends Controller
     public function updatePesantren(Request $request)
     {
         $user    = auth()->user();
-        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+        $profile = $this->resolveProfile($user);
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);

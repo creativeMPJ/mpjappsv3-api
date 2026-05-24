@@ -117,11 +117,11 @@ class MediaController extends Controller
                 'password_hash' => Hash::make($data['password']),
             ]);
 
-            // 2. Assign role user
+            // 2. Assign role kru pesantren
             UserRole::create([
                 'id'         => Str::uuid(),
                 'user_id'    => $crewUser->id,
-                'role_id'    => Role::findByEnum('user')?->id,
+                'role_id'    => Role::findByEnum('crew')?->id,
                 'created_at' => now(),
             ]);
 
