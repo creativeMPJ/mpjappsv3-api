@@ -63,6 +63,7 @@ class AuthController extends Controller
                 'id'              => Str::uuid(),
                 'profile_id'      => $profile->id,
                 'nama'            => $data['namaPengelola'] ?? 'Pengelola',
+                'email'           => $email,
                 'jabatan'         => 'Koordinator',
                 'jabatan_code_id' => $jabatanCode?->id,
                 'no_wa'           => $data['noWhatsapp'] ?? null,

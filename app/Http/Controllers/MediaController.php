@@ -7,10 +7,14 @@ use App\Models\JabatanCode;
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
+use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Models\UserRole;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class MediaController extends Controller
@@ -72,16 +76,22 @@ class MediaController extends Controller
             'nama'          => 'required|string',
             'jabatanCodeId' => 'nullable|uuid',
             'jabatan'       => 'nullable|string',
-            'email'         => 'nullable|email|max:255',
+            'email'         => 'required|email|max:255|unique:users,email',
+            'password'      => 'required|string|min:6',
             'whatsapp'      => 'nullable|string|max:30',
             'jabatanMedia'  => 'nullable|string|max:255',
             'catatan'       => 'nullable|string|max:1000',
+        ], [
+            'email.required'    => 'Email wajib diisi.',
+            'email.unique'      => 'Email sudah terdaftar di sistem.',
+            'password.required' => 'Password wajib diisi.',
+            'password.min'      => 'Password minimal 6 karakter.',
         ]);
 
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
         if (!$profile) return response()->json(['message' => 'Profile tidak ditemukan'], 404);
 
-        $freeSlotQuantity = (int) \App\Models\SystemSetting::getValue('free_slot_quantity', 3);
+        $freeSlotQuantity = (int) SystemSetting::getValue('free_slot_quantity', 3);
         $count = Crew::where('profile_id', $profile->id)
             ->whereIn('status', ['active', 'pending'])
             ->count();
@@ -99,44 +109,69 @@ class MediaController extends Controller
             }
         }
 
-        // Slot gratis: crew langsung aktif, tanpa invoice pembayaran
-        $crew = Crew::create([
-            'id'              => Str::uuid(),
-            'profile_id'      => $profile->id,
-            'nama'            => $data['nama'],
-            'jabatan'         => $jabatanName,
-            'email'           => $data['email'] ?? null,
-            'no_wa'           => $data['whatsapp'] ?? null,
-            'jabatan_media'   => $data['jabatanMedia'] ?? null,
-            'catatan'         => $data['catatan'] ?? null,
-            'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
-            'niam'            => null,
-            'status'          => 'active',
-            'is_pic'          => false,
-        ]);
+        $result = DB::transaction(function () use ($data, $profile, $jabatanName) {
+            // 1. Buat akun login untuk crew
+            $crewUser = User::create([
+                'id'            => Str::uuid(),
+                'email'         => strtolower($data['email']),
+                'password_hash' => Hash::make($data['password']),
+            ]);
 
-        // Generate NIAM langsung jika pesantren sudah punya NIP
-        if ($profile->nip) {
-            $niam = FinanceActivationService::issueCrewNiam($profile, $crew);
-            $crew->update(['niam' => $niam]);
-        }
+            // 2. Assign role user
+            UserRole::create([
+                'id'         => Str::uuid(),
+                'user_id'    => $crewUser->id,
+                'role_id'    => Role::findByEnum('user')?->id,
+                'created_at' => now(),
+            ]);
 
-        $crew->load('jabatanCode:id,name,code');
+            // 3. Buat record crew, langsung aktif (slot gratis)
+            $crew = Crew::create([
+                'id'              => Str::uuid(),
+                'profile_id'      => $profile->id,
+                'nama'            => $data['nama'],
+                'jabatan'         => $jabatanName,
+                'email'           => strtolower($data['email']),
+                'no_wa'           => $data['whatsapp'] ?? null,
+                'jabatan_media'   => $data['jabatanMedia'] ?? null,
+                'catatan'         => $data['catatan'] ?? null,
+                'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
+                'niam'            => null,
+                'status'          => 'active',
+                'is_pic'          => false,
+            ]);
+
+            // 4. Link user → crew
+            $crewUser->update([
+                'reff_type' => 'crew',
+                'reff_id'   => $crew->id,
+            ]);
+
+            // 5. Generate NIAM langsung jika pesantren sudah punya NIP
+            if ($profile->nip) {
+                $niam = FinanceActivationService::issueCrewNiam($profile, $crew);
+                $crew->update(['niam' => $niam]);
+            }
+
+            return $crew;
+        });
+
+        $result->load('jabatanCode:id,name,code');
 
         return response()->json([
             'crew' => [
-                'id'              => $crew->id,
-                'nama'            => $crew->nama,
-                'jabatan'         => $crew->jabatan,
-                'email'           => $crew->email,
-                'whatsapp'        => $crew->no_wa,
-                'jabatan_media'   => $crew->jabatan_media,
-                'catatan'         => $crew->catatan,
-                'niam'            => $crew->niam,
-                'status'          => $crew->status,
-                'xp_level'        => $crew->xp_level,
-                'jabatan_code_id' => $crew->jabatan_code_id,
-                'jabatan_code'    => $crew->jabatanCode,
+                'id'              => $result->id,
+                'nama'            => $result->nama,
+                'jabatan'         => $result->jabatan,
+                'email'           => $result->email,
+                'whatsapp'        => $result->no_wa,
+                'jabatan_media'   => $result->jabatan_media,
+                'catatan'         => $result->catatan,
+                'niam'            => $result->niam,
+                'status'          => $result->status,
+                'xp_level'        => $result->xp_level,
+                'jabatan_code_id' => $result->jabatan_code_id,
+                'jabatan_code'    => $result->jabatanCode,
             ],
             'invoice' => null,
         ]);
