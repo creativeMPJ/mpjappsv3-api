@@ -2,7 +2,8 @@
 
 Base prefix: `/api/claims`
 
-Semua endpoint di grup ini **memerlukan autentikasi** (JWT Bearer Token).
+Endpoint klaim publik dipakai oleh landing page untuk pencarian klaim dan verifikasi OTP.
+Hanya endpoint administrasi tertentu yang memerlukan autentikasi.
 
 ---
 
@@ -28,7 +29,7 @@ Mendapatkan jumlah klaim yang menunggu persetujuan di wilayah admin yang login.
 
 Mencari klaim pesantren berdasarkan nama atau email pengelola.
 
-**Auth:** Diperlukan
+**Auth:** Tidak diperlukan
 
 **Query Parameters:**
 
@@ -62,7 +63,7 @@ Mencari klaim pesantren berdasarkan nama atau email pengelola.
 
 Mengirim kode OTP ke nomor WhatsApp pengelola pesantren untuk verifikasi klaim.
 
-**Auth:** Diperlukan
+**Auth:** Tidak diperlukan
 **Content-Type:** `application/json`
 
 **Request Body:**
@@ -103,7 +104,7 @@ Mengirim kode OTP ke nomor WhatsApp pengelola pesantren untuk verifikasi klaim.
 
 Memverifikasi kode OTP untuk mengkonfirmasi klaim pesantren.
 
-**Auth:** Diperlukan
+**Auth:** Tidak diperlukan
 **Content-Type:** `application/json`
 
 **Request Body:**
@@ -142,7 +143,7 @@ Memverifikasi kode OTP untuk mengkonfirmasi klaim pesantren.
 
 Mendapatkan informasi kontak admin wilayah untuk suatu klaim.
 
-**Auth:** Diperlukan
+**Auth:** Tidak diperlukan
 
 **Path Parameter:**
 

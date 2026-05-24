@@ -64,14 +64,14 @@ class ClaimController extends Controller
 
         if (!$claim) return response()->json(['message' => 'Claim tidak ditemukan'], 404);
 
-        // Ambil nomor WA: untuk role user dari crew, untuk admin dari profil
-        $claimUser = User::find($claim->user_id);
+        // pesantren_claims.user_id stores pesantren_profiles.id in this schema.
+        $profile = PesantrenProfile::find($claim->user_id);
+        $claimUser = $profile ? User::find($profile->user_id) : null;
         $phone     = '';
         if ($claimUser && $claimUser->reff_type === 'crew' && $claimUser->reff_id) {
             $phone = trim(Crew::find($claimUser->reff_id)?->no_wa ?? '');
         }
         if (!$phone) {
-            $profile = PesantrenProfile::where('user_id', $claim->user_id)->first();
             $phone   = trim($profile?->no_wa_pendaftar ?? '');
         }
 

@@ -88,16 +88,20 @@ Route::prefix('public')->group(function () {
     Route::get('/pesantren/{nip}/crew/{niamSuffix}',[PublicController::class, 'pesantrenCrew']);
 });
 
+// ── Public claim flow used by landing page ────────────────────────────
+Route::prefix('claims')->group(function () {
+    Route::get('/search',                  [ClaimController::class, 'search']);
+    Route::post('/send-otp',               [ClaimController::class, 'sendOtp']);
+    Route::post('/verify-otp',             [ClaimController::class, 'verifyOtp']);
+    Route::get('/contact/{claimId}',       [ClaimController::class, 'contact']);
+});
+
 // ── Authenticated routes ───────────────────────────────────────────────
 Route::middleware('auth:api')->group(function () {
 
     // ── Claims ────────────────────────────────────────────────────────
     Route::prefix('claims')->group(function () {
         Route::get('/pending-count',           [ClaimController::class, 'pendingCount']);
-        Route::get('/search',                  [ClaimController::class, 'search']);
-        Route::post('/send-otp',               [ClaimController::class, 'sendOtp']);
-        Route::post('/verify-otp',             [ClaimController::class, 'verifyOtp']);
-        Route::get('/contact/{claimId}',       [ClaimController::class, 'contact']);
     });
 
     // ── Payments ──────────────────────────────────────────────────────
