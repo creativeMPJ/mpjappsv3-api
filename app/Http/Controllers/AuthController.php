@@ -139,9 +139,10 @@ class AuthController extends Controller
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
         // Crew member: tidak punya profile sendiri, ambil dari pesantren tempat bertugas
+        $crewRecord = null;
         if (!$profile && $user->reff_type === 'crew' && $user->reff_id) {
-            $crew    = Crew::find($user->reff_id);
-            $profile = $crew ? PesantrenProfile::find($crew->profile_id) : null;
+            $crewRecord = Crew::find($user->reff_id);
+            $profile    = $crewRecord ? PesantrenProfile::find($crewRecord->profile_id) : null;
         }
 
         if (!$profile) {
@@ -167,6 +168,8 @@ class AuthController extends Controller
                 'alamatSingkat'  => $profile->alamat_singkat,
                 'regionId'       => $profile->region_id,
                 'logoUrl'        => $profile->logo_url,
+                // Nama pribadi — diisi untuk crew, null untuk owner pesantren
+                'namaLengkap'    => $crewRecord?->nama ?? null,
             ],
         ]);
     }
