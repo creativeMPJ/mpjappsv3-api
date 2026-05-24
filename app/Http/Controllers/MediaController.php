@@ -233,6 +233,22 @@ class MediaController extends Controller
     {
         $user = auth()->user();
 
+        // Crew member: kembalikan data diri sendiri (bukan koordinator pesantren)
+        if ($user->reff_type === 'crew' && $user->reff_id) {
+            $crew = Crew::find($user->reff_id);
+            return response()->json([
+                'regionalApprovedAt' => null,
+                'pusatApprovedAt'    => null,
+                'koordinator'        => $crew ? [
+                    'nama'     => $crew->nama,
+                    'niam'     => $crew->niam,
+                    'jabatan'  => $crew->jabatan ?? 'Kru',
+                    'status'   => $crew->status,
+                    'xp_level' => $crew->xp_level ?? 0,
+                ] : null,
+            ]);
+        }
+
         $claim = PesantrenClaim::where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->select('regional_approved_at', 'approved_at', 'status')
