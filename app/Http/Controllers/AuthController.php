@@ -135,8 +135,14 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $user     = auth()->user();
-        $profile  = PesantrenProfile::where('user_id', $user->id)->first();
+        $user    = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        // Crew member: tidak punya profile sendiri, ambil dari pesantren tempat bertugas
+        if (!$profile && $user->reff_type === 'crew' && $user->reff_id) {
+            $crew    = Crew::find($user->reff_id);
+            $profile = $crew ? PesantrenProfile::find($crew->profile_id) : null;
+        }
 
         if (!$profile) {
             return response()->json(['message' => 'User not found'], 404);
