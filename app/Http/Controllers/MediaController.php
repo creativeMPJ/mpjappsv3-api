@@ -29,7 +29,8 @@ class MediaController extends Controller
 
         $crews = Crew::with('jabatanCode:id,name,code')
             ->where('profile_id', $profile->id)
-            ->orderBy('created_at', 'desc')
+            ->orderByDesc('is_pic')
+            ->orderBy('created_at', 'asc')
             ->get();
 
         $latestInvoices = Payment::where('user_id', $profile->id)
@@ -54,6 +55,7 @@ class MediaController extends Controller
                 'xp_level'        => $c->xp_level,
                 'jabatan_code_id' => $c->jabatan_code_id,
                 'jabatan_code'    => $c->jabatanCode,
+                'is_pic'                => (bool) $c->is_pic,
                 'activation_invoice_id' => $latestInvoices->get($c->id)?->id,
                 'activation_invoice_status' => $latestInvoices->get($c->id)
                     ? FinanceActivationService::normalizePaymentStatus($latestInvoices->get($c->id)->status)
@@ -110,6 +112,7 @@ class MediaController extends Controller
             'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
             'niam'            => null,
             'status'          => 'active',
+            'is_pic'          => false,
         ]);
 
         // Generate NIAM langsung jika pesantren sudah punya NIP
