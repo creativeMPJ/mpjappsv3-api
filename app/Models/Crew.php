@@ -12,7 +12,7 @@ class Crew extends Model
     protected $fillable = [
         'id', 'profile_id', 'nama', 'jabatan', 'jabatan_code_id',
         'email', 'jabatan_media', 'niam', 'no_wa', 'status', 'skill',
-        'catatan', 'xp_level',
+        'catatan', 'xp_level', 'is_pic',
     ];
 
     protected $casts = ['skill' => 'array'];
