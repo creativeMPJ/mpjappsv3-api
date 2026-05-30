@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class EventRegistration extends Model
 {
@@ -13,38 +15,30 @@ class EventRegistration extends Model
     protected $fillable = [
         'id',
         'event_id',
-        'user_id',
-        'profile_id',
-        'crew_id',
         'registration_type',
-        'ticket_code',
         'ticket_status',
-        'price_amount',
-        'payment_id',
+        // Data peserta Kemah Film
         'participant_name',
         'participant_phone',
-        'participant_email',
-        'niam',
-        'notes',
+        'asal_pesantren',
+        'alamat_pesantren',
+        'pesantren_profile_id',
+        'kemampuan_bidang',
+        'tingkat_kemampuan',
+        'pengalaman',
+        'link_karya',
+        'surat_delegasi_path',
+        'bukti_pembayaran_path',
     ];
 
-    public function event()
+    protected static function boot(): void
     {
-        return $this->belongsTo(Event::class, 'event_id');
+        parent::boot();
+        static::creating(fn($model) => $model->id ??= (string) Str::uuid());
     }
 
-    public function profile()
+    public function event(): BelongsTo
     {
-        return $this->belongsTo(PesantrenProfile::class, 'profile_id');
-    }
-
-    public function crew()
-    {
-        return $this->belongsTo(Crew::class, 'crew_id');
-    }
-
-    public function payment()
-    {
-        return $this->belongsTo(Payment::class, 'payment_id');
+        return $this->belongsTo(Event::class);
     }
 }

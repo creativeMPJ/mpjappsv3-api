@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClaimController;
 use App\Http\Controllers\EventController;
+use App\Http\Controllers\EventRegistrationController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\PaymentController;
@@ -76,24 +77,19 @@ Route::prefix('auth')->group(function () {
 
 // ── Public (no auth) ──────────────────────────────────────────────────
 Route::prefix('public')->group(function () {
-    Route::get('/regions',                         [PublicController::class, 'regions']);
-    Route::get('/cities',                          [PublicController::class, 'cities']);
-    Route::get('/cities/{id}/region',              [PublicController::class, 'cityRegion']);
-    Route::get('/directory',                       [PublicController::class, 'directory']);
-    Route::get('/directory-search',                [PublicController::class, 'directorySearch']);
-    Route::get('/directory/{id}',                   [PublicController::class, 'directoryDetail']);
-    Route::get('/niam-lookup',                     [PublicController::class, 'lookupNiam']);
-    Route::get('/pesantren',                       [PublicController::class, 'pesantrenSearch']);
-    Route::get('/pesantren/{nip}/profile',         [PublicController::class, 'pesantrenProfile']);
-    Route::get('/pesantren/{nip}/crew/{niamSuffix}',[PublicController::class, 'pesantrenCrew']);
-});
+    Route::get('/regions',                          [PublicController::class, 'regions']);
+    Route::get('/cities',                           [PublicController::class, 'cities']);
+    Route::get('/cities/{id}/region',               [PublicController::class, 'cityRegion']);
+    Route::get('/directory',                        [PublicController::class, 'directory']);
+    Route::get('/directory-search',                 [PublicController::class, 'directorySearch']);
+    Route::get('/pesantren',                        [PublicController::class, 'pesantrenSearch']);
+    Route::get('/pesantren/{nip}/profile',          [PublicController::class, 'pesantrenProfile']);
+    Route::get('/pesantren/{nip}/crew/{niamSuffix}', [PublicController::class, 'pesantrenCrew']);
 
-// ── Public claim flow used by landing page ────────────────────────────
-Route::prefix('claims')->group(function () {
-    Route::get('/search',                  [ClaimController::class, 'search']);
-    Route::post('/send-otp',               [ClaimController::class, 'sendOtp']);
-    Route::post('/verify-otp',             [ClaimController::class, 'verifyOtp']);
-    Route::get('/contact/{claimId}',       [ClaimController::class, 'contact']);
+    // Event registration (Kemah Film MPJ 2026, dst)
+    Route::post('/event-registration/upload',       [EventRegistrationController::class, 'upload']);
+    Route::post('/event-registration',              [EventRegistrationController::class, 'store']);
+    Route::get('/event-registration/{id}',          [EventRegistrationController::class, 'show']);
 });
 
 // ── Authenticated routes ───────────────────────────────────────────────
@@ -102,6 +98,10 @@ Route::middleware('auth:api')->group(function () {
     // ── Claims ────────────────────────────────────────────────────────
     Route::prefix('claims')->group(function () {
         Route::get('/pending-count',           [ClaimController::class, 'pendingCount']);
+        Route::get('/search',                  [ClaimController::class, 'search']);
+        Route::post('/send-otp',               [ClaimController::class, 'sendOtp']);
+        Route::post('/verify-otp',             [ClaimController::class, 'verifyOtp']);
+        Route::get('/contact/{claimId}',       [ClaimController::class, 'contact']);
     });
 
     // ── Payments ──────────────────────────────────────────────────────
@@ -125,7 +125,6 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/crew',             [MediaController::class, 'createCrew']);
         Route::put('/crew/{id}',         [MediaController::class, 'updateCrew']);
         Route::delete('/crew/{id}',      [MediaController::class, 'deleteCrew']);
-        Route::get('/slot-config',       [MediaController::class, 'slotConfig']);
         Route::get('/dashboard-context', [MediaController::class, 'dashboardContext']);
         Route::get('/profile-settings',  [MediaController::class, 'profileSettings']);
     });
@@ -139,16 +138,6 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/pending-status',               [InstitutionController::class, 'pendingStatus']);
     });
 
-    // ── Hub resources ────────────────────────────────────────────────
-    Route::prefix('hub')->group(function () {
-        Route::get('/resources', [AdminController::class, 'hubResources']);
-    });
-
-    // ── Militansi ────────────────────────────────────────────────────
-    Route::prefix('militansi')->group(function () {
-        Route::get('/overview', [AdminController::class, 'myMilitansiOverview']);
-    });
-
     // ── Regional admin ────────────────────────────────────────────────
     Route::prefix('regional')->group(function () {
         Route::get('/master-data',                        [RegionalController::class, 'masterData']);
@@ -160,11 +149,6 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/late-payments/{claimId}/follow-up', [RegionalController::class, 'followUp']);
         Route::get('/performance',                        [RegionalController::class, 'performance']);
         Route::get('/leaderboard',                        [RegionalController::class, 'leaderboard']);
-        Route::get('/reports',                            [RegionalController::class, 'reports']);
-        Route::post('/reports',                           [RegionalController::class, 'submitReport']);
-        Route::delete('/reports/{id}',                    [RegionalController::class, 'deleteReport']);
-        Route::get('/download-center',                    [RegionalController::class, 'downloadCenter']);
-        Route::get('/militansi/overview',                 [RegionalController::class, 'militansiOverview']);
     });
 
     // ── Admin pusat ───────────────────────────────────────────────────
@@ -201,11 +185,6 @@ Route::middleware('auth:api')->group(function () {
         // Search & stats
         Route::get('/global-search',                       [AdminController::class, 'globalSearch']);
         Route::get('/super-stats',                         [AdminController::class, 'superStats']);
-        Route::get('/hub/resources',                       [AdminController::class, 'adminHubResources']);
-        Route::post('/hub/resources',                      [AdminController::class, 'storeHubResource']);
-        Route::delete('/hub/resources/{id}',               [AdminController::class, 'deleteHubResource']);
-        Route::get('/militansi/summary',                   [AdminController::class, 'militansiSummary']);
-        Route::get('/audit-logs',                          [AdminController::class, 'auditLogs']);
         Route::get('/late-payment-count',                  [AdminController::class, 'latePaymentCount']);
 
         // Pusat assistants
@@ -216,7 +195,6 @@ Route::middleware('auth:api')->group(function () {
         // Regional management
         Route::get('/regional-management/data',            [AdminController::class, 'regionalManagementData']);
         Route::post('/regional-management/regions',        [AdminController::class, 'addRegion']);
-        Route::put('/regional-management/regions/{id}',    [AdminController::class, 'updateRegion']);
         Route::delete('/regional-management/regions/{id}', [AdminController::class, 'deleteRegion']);
         Route::post('/regional-management/cities',         [AdminController::class, 'addCity']);
         Route::delete('/regional-management/cities/{id}',  [AdminController::class, 'deleteCity']);
@@ -240,9 +218,6 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/payments',                            [AdminController::class, 'payments']);
         Route::post('/payments/{id}/reject',               [AdminController::class, 'rejectPayment']);
         Route::post('/payments/{id}/approve',              [AdminController::class, 'approvePayment']);
-        Route::get('/payments/{id}/logs',                  [AdminController::class, 'paymentLogs']);
-        Route::post('/payments/{id}/cancel',               [AdminController::class, 'cancelPayment']);
-        Route::post('/payments/{id}/expire',               [AdminController::class, 'expirePayment']);
 
         // Leveling
         Route::get('/leveling-profiles',                   [AdminController::class, 'levelingProfiles']);
@@ -271,25 +246,15 @@ Route::middleware('auth:api')->group(function () {
 
     // ── Events ────────────────────────────────────────────────────────
     Route::prefix('events')->group(function () {
-        Route::get('/my-registrations',            [EventController::class, 'myRegistrations']);
-        Route::get('/my-history',                  [EventController::class, 'myHistory']);
-        Route::get('/my-ticket/{registrationId}',  [EventController::class, 'myTicket']);
-        Route::get('/my-certificates',             [EventController::class, 'myCertificates']);
-
-        // Regional event routes
-        Route::get('/regional',                    [EventController::class, 'regionalIndex']);
-        Route::post('/regional',                   [EventController::class, 'regionalStore']);
-        Route::put('/regional/{id}',               [EventController::class, 'regionalUpdate']);
-        Route::post('/regional/{id}/report',       [EventController::class, 'regionalSubmitReport']);
-
         Route::get('/',                        [EventController::class, 'index']);
         Route::post('/',                       [EventController::class, 'store']);
-        Route::get('/{id}',                    [EventController::class, 'show']);
-        Route::get('/{id}/participants',       [EventController::class, 'participants']);
-        Route::post('/{id}/register',          [EventController::class, 'register']);
-        Route::post('/{id}/check-ticket',      [EventController::class, 'checkTicket']);
-        Route::post('/{id}/check-in',          [EventController::class, 'checkIn']);
         Route::get('/{id}/reports',            [EventController::class, 'reports']);
         Route::post('/{id}/report',            [EventController::class, 'submitReport']);
+
+        // Regional event routes
+        Route::get('/regional',                [EventController::class, 'regionalIndex']);
+        Route::post('/regional',               [EventController::class, 'regionalStore']);
+        Route::put('/regional/{id}',           [EventController::class, 'regionalUpdate']);
+        Route::post('/regional/{id}/report',   [EventController::class, 'regionalSubmitReport']);
     });
 });
