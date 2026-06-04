@@ -59,6 +59,7 @@ Setiap response login dan `/api/auth/me` menyertakan field `akses` — array per
 | [regional.md](regional.md) | `/api/regional` | Panel admin wilayah |
 | [admin.md](admin.md) | `/api/admin` | Panel admin pusat |
 | [events.md](events.md) | `/api/events` | Manajemen event |
+| [api-event-frontend.md](api-event-frontend.md) | `/api-event/v1` | Compatibility API untuk frontend MPJ Event |
 | [roles.md](roles.md) | `/api/roles` | Manajemen role & hak akses |
 
 ---

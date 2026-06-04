@@ -16,6 +16,7 @@ class Payment extends Model
         'transaction_reference', 'proof_file_url', 'rejection_reason',
         'verified_by', 'verified_at', 'submitted_at', 'expired_at',
         'cancelled_at', 'rejected_at', 'created_by', 'rejected_by', 'meta',
+        'participant_id', 'amount', 'proof_path',
     ];
 
     protected $casts = [
