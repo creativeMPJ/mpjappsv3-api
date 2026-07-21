@@ -129,6 +129,7 @@ Route::middleware('auth:api')->group(function () {
         Route::delete('/crew/{id}',      [MediaController::class, 'deleteCrew']);
         Route::get('/dashboard-context', [MediaController::class, 'dashboardContext']);
         Route::get('/profile-settings',  [MediaController::class, 'profileSettings']);
+        Route::get('/slot-config',       [MediaController::class, 'slotConfig']);
     });
 
     // ── Institution ───────────────────────────────────────────────────
