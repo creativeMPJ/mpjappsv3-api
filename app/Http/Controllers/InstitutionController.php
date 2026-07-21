@@ -107,6 +107,15 @@ class InstitutionController extends Controller
 
         $region = $regency->regions()->first();
 
+        // Tanpa region, klaim tersimpan dengan region_id NULL sehingga tidak
+        // pernah muncul di antrian admin regional mana pun — pengaju menunggu
+        // approval yang tidak akan datang. Lebih baik ditolak di sini.
+        if (!$region) {
+            return response()->json([
+                'message' => 'Kabupaten/kota ini belum terhubung ke regional MPJ. Silakan pilih ulang atau hubungi admin.',
+            ], 422);
+        }
+
         \Illuminate\Support\Facades\DB::transaction(function () use ($user, $data, $regency, $region, $namaPesantren, $jenisPengajuan) {
             $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
