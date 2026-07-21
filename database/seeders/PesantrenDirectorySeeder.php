@@ -114,21 +114,38 @@ class PesantrenDirectorySeeder extends Seeder
         $mainName = preg_replace('/^(KAB\.|KABUPATEN|KOTA)\s*/i', '', $search);
         $mainName = trim($mainName);
 
+        $mainName = strtoupper($mainName);
+        $partial  = null;
+
         foreach ($regencies as $r) {
             $rName = strtoupper($r->name);
 
-            if ($isKota) {
-                if (str_contains($rName, 'KOTA') && str_contains($rName, strtoupper($mainName))) {
-                    return $r->id;
-                }
-            } else {
-                if (!str_contains($rName, 'KOTA') && str_contains($rName, strtoupper($mainName))) {
-                    return $r->id;
-                }
+            // MPJ hanya melayani Jawa Timur (kode 35xx). Tanpa batasan ini,
+            // "MALANG" ikut cocok ke "KABUPATEN PEMALANG" (3327, Jawa Tengah)
+            // yang tidak punya regional, sehingga klaim tersimpan yatim.
+            if (substr((string) $r->id, 0, 2) !== '35') {
+                continue;
+            }
+
+            $isKotaRow = str_contains($rName, 'KOTA');
+            if ($isKota !== $isKotaRow) {
+                continue;
+            }
+
+            $rMain = trim(preg_replace('/^(KABUPATEN|KOTA)\s*/i', '', $rName));
+
+            // Kecocokan persis selalu menang atas kecocokan sebagian, supaya
+            // nama yang mengandung nama lain tidak saling menyerobot.
+            if ($rMain === $mainName) {
+                return $r->id;
+            }
+
+            if ($partial === null && str_contains($rName, $mainName)) {
+                $partial = $r->id;
             }
         }
 
-        return null;
+        return $partial;
     }
 
     private function normalizePhone($value): ?string
