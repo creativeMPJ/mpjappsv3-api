@@ -233,8 +233,14 @@ class MediaController extends Controller
     {
         $user = auth()->user();
 
+        // Pengelola pesantren juga tercatat sebagai crew (PIC didaftarkan sebagai
+        // Koordinator), jadi reff_type saja tidak cukup untuk membedakan. Yang
+        // punya profil pesantren diperlakukan sebagai pengelola supaya tanggal
+        // approval untuk piagam tetap terkirim.
+        $ownedProfile = PesantrenProfile::where('user_id', $user->id)->first();
+
         // Crew member: kembalikan data diri sendiri (bukan koordinator pesantren)
-        if ($user->reff_type === 'crew' && $user->reff_id) {
+        if (!$ownedProfile && $user->reff_type === 'crew' && $user->reff_id) {
             $crew = Crew::find($user->reff_id);
             return response()->json([
                 'regionalApprovedAt' => null,
@@ -249,12 +255,18 @@ class MediaController extends Controller
             ]);
         }
 
-        $claim = PesantrenClaim::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->select('regional_approved_at', 'approved_at', 'status')
-            ->first();
+        $profile = $ownedProfile;
 
-        $profile     = PesantrenProfile::where('user_id', $user->id)->first();
+        // pesantren_claims.user_id menyimpan id PROFIL, bukan id user.
+        // Mencarinya dengan $user->id membuat klaim tidak pernah ketemu sehingga
+        // tanggal approval selalu null di piagam.
+        $claim = $profile
+            ? PesantrenClaim::where('user_id', $profile->id)
+                ->orderBy('created_at', 'desc')
+                ->select('regional_approved_at', 'approved_at', 'status')
+                ->first()
+            : null;
+
         $koordinator = Crew::where('profile_id', $profile?->id)
             ->where('jabatan', 'Koordinator')
             ->select('nama', 'niam', 'jabatan', 'status', 'xp_level')
