@@ -83,6 +83,21 @@ class InstitutionController extends Controller
             if (!$directory) {
                 return response()->json(['message' => 'Pesantren direktori tidak ditemukan'], 404);
             }
+
+            // Cegah satu pesantren diklaim lebih dari satu pengelola. Klaim milik
+            // sendiri tetap boleh supaya form ini bisa disubmit ulang (idempoten).
+            $ownProfileId = PesantrenProfile::where('user_id', $user->id)->value('id');
+
+            $claimedByOther = PesantrenClaim::where('pesantren_directory_id', $directory->id)
+                ->whereIn('status', ['pending', 'regional_approved', 'approved', 'pusat_approved'])
+                ->when($ownProfileId, fn ($query) => $query->where('user_id', '!=', $ownProfileId))
+                ->exists();
+
+            if ($claimedByOther) {
+                return response()->json([
+                    'message' => 'Pesantren ini sudah diklaim oleh pengelola lain. Hubungi admin regional jika Anda merasa ini keliru.',
+                ], 409);
+            }
         }
 
         $namaPesantren = $directory?->nama_pesantren ?? $data['namaPesantren'];

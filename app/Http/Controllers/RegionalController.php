@@ -9,6 +9,7 @@ use App\Models\HubResource;
 use App\Models\MilitansiLevel;
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
+use App\Models\PesantrenDirectory;
 use App\Models\PricingPackage;
 use App\Models\PesantrenProfile;
 use App\Models\RegionalReport;
@@ -161,6 +162,13 @@ class RegionalController extends Controller
                     'status_account' => 'active',
                     'status_payment' => 'unpaid',
                 ]);
+
+                // Tandai direktori supaya tidak bisa diklaim ulang dan badge
+                // "Sudah Diklaim" muncul di landing page.
+                if ($claim->pesantren_directory_id) {
+                    PesantrenDirectory::where('id', $claim->pesantren_directory_id)
+                        ->update(['is_claimed' => true]);
+                }
             } else {
                 PesantrenProfile::where('id', $claim->user_id)->update([
                     'status_account' => 'pending',
