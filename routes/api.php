@@ -82,6 +82,8 @@ Route::prefix('public')->group(function () {
     Route::get('/cities/{id}/region',               [PublicController::class, 'cityRegion']);
     Route::get('/directory',                        [PublicController::class, 'directory']);
     Route::get('/directory-search',                 [PublicController::class, 'directorySearch']);
+    // Harus setelah /directory-search agar tidak tertangkap pola {id}.
+    Route::get('/directory/{id}',                   [PublicController::class, 'directoryDetail']);
     Route::get('/pesantren',                        [PublicController::class, 'pesantrenSearch']);
     Route::get('/pesantren/{nip}/profile',          [PublicController::class, 'pesantrenProfile']);
     Route::get('/pesantren/{nip}/crew/{niamSuffix}', [PublicController::class, 'pesantrenCrew']);
