@@ -50,6 +50,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('event_registrations');
+        // Sengaja dikosongkan. Tabel event_registrations dibuat oleh migration
+        // 2026_05_14_000004; up() di sini hanya jalan kalau tabel belum ada.
+        // Drop di sini akan menghapus tabel milik migration lain saat rollback.
     }
 };

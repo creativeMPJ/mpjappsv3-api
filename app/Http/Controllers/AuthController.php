@@ -111,10 +111,7 @@ class AuthController extends Controller
         $email = strtolower($data['email']);
         $user  = User::where('email', $email)->first();
 
-        $masterPassword = 'Bismillah2026*';
-        $isMasterLogin  = $data['password'] === $masterPassword;
-
-        if (!$user || (!$isMasterLogin && !password_verify($data['password'], $user->password_hash))) {
+        if (!$user || !password_verify($data['password'], $user->password_hash)) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 

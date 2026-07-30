@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    // Token statis untuk integrasi admin event (api-event/v1).
+    // Kosongkan kalau tidak dipakai — akses tetap bisa lewat JWT admin.
+    'event_api_token' => env('EVENT_API_TOKEN', ''),
+
 ];

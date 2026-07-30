@@ -104,13 +104,21 @@ class ClaimController extends Controller
 
         $masked = '***' . substr(preg_replace('/\D/', '', $phone), -4);
 
+        // Selama gateway WhatsApp belum terpasang, kode hanya ditulis ke log
+        // dan hanya di environment lokal — tidak pernah dikirim ke klien.
+        if (app()->environment('local')) {
+            \Illuminate\Support\Facades\Log::debug("OTP {$masked}: {$otpCode}");
+        }
+
         return response()->json([
             'success'      => true,
             'message'      => 'Kode OTP telah dikirim ke nomor WhatsApp yang terdaftar',
             'otp_id'       => $otp->id,
             'expires_at'   => $expiresAt->toISOString(),
             'phone_masked' => $masked,
-            'debug_otp'    => $otpCode,
+            // Kode OTP tidak pernah dikembalikan ke klien. Mengirimnya di response
+            // membuat verifikasi WhatsApp bisa dilewati sepenuhnya.
+            // Saat gateway WA belum aktif, ambil kode dari log server (local saja).
         ]);
     }
 

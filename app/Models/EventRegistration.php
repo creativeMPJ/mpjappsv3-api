@@ -35,8 +35,9 @@ class EventRegistration extends Model
         'niam',
         'notes',
         // Data peserta Kemah Film
-        'nama',
-        'no_whatsapp',
+        // Catatan: `nama`, `no_whatsapp`, dan `status` tidak ada di tabel —
+        // migration 2026_05_30_000002 tidak pernah menambahkannya.
+        // Pakai participant_name / participant_phone / ticket_status.
         'participant_name',
         'participant_phone',
         'asal_pesantren',
@@ -48,7 +49,6 @@ class EventRegistration extends Model
         'link_karya',
         'surat_delegasi_path',
         'bukti_pembayaran_path',
-        'status',
     ];
 
     protected $casts = [

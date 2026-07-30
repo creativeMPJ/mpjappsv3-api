@@ -595,9 +595,12 @@ class ApiEventCompatController extends Controller
 
     private function assertAdmin(Request $request): void
     {
-        $expected = (string) env('EVENT_API_TOKEN', 'mpj-event-admin-token');
+        // Token statis hanya berlaku kalau EVENT_API_TOKEN diisi di .env.
+        // Tanpa nilai default — default yang hardcoded sebelumnya membuat siapa pun
+        // yang membaca source code punya akses admin event penuh.
+        $expected = (string) config('services.event_api_token', '');
         $provided = $request->bearerToken() ?: $request->header('x-admin-token', '');
-        if ($expected !== '' && hash_equals($expected, (string) $provided)) {
+        if ($expected !== '' && $provided !== '' && hash_equals($expected, (string) $provided)) {
             return;
         }
 

@@ -17,57 +17,16 @@ use Illuminate\Support\Facades\Route;
 // ── Health check ─────────────────────────────────────────────────────
 Route::get('/health', fn() => response()->json(['status' => 'ok', 'timestamp' => now()]));
 
-// ── Artisan runner (deploy helper) ───────────────────────────────────
-Route::post('/artisan', function (\Illuminate\Http\Request $request) {
-    $allowed = [
-        'config:clear', 'cache:clear', 'route:clear', 'view:clear',
-        'optimize', 'optimize:clear', 'storage:link', 'migrate',
-        'migrate:status', 'migrate:fresh', 'migrate:rollback', 'db:seed', 'queue:restart',
-    ];
-
-    $command = $request->input('command');
-
-    if (!in_array($command, $allowed)) {
-        return response()->json(['message' => 'Command not allowed', 'allowed' => $allowed], 422);
-    }
-
-    $needsForce = in_array($command, ['db:seed', 'migrate', 'migrate:fresh', 'migrate:rollback']);
-    $params = $needsForce ? ['--force' => true] : [];
-    \Illuminate\Support\Facades\Artisan::call($command, $params);
-
-    return response()->json([
-        'command' => $command,
-        'output'  => \Illuminate\Support\Facades\Artisan::output(),
-    ]);
-});
-
-// ── Dev reset (truncate all data) ─────────────────────────────────────
-Route::post('/dev/reset', function (\Illuminate\Http\Request $request) {
-    if ($request->input('password') !== 'sulip') {
-        return response()->json(['message' => 'Forbidden'], 403);
-    }
-
-    $tables = [
-        'otp_verifications', 'follow_up_logs', 'payments',
-        'pesantren_claims', 'pesantren_directory', 'crews',
-        'user_roles', 'profiles', 'users',
-        'region_regencies', 'regions', 'cache',
-    ];
-
-    \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0');
-    foreach ($tables as $table) {
-        \Illuminate\Support\Facades\DB::table($table)->truncate();
-    }
-    \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1');
-
-    return response()->json(['success' => true, 'message' => 'Data truncated.']);
-});
+// Catatan: endpoint /artisan dan /dev/reset dihapus.
+// Keduanya berjalan tanpa autentikasi dan mengizinkan migrate:fresh / truncate
+// seluruh tabel — siapa pun di internet bisa menghapus database.
+// Jalankan perintah artisan lewat SSH/CLI di server, bukan lewat HTTP.
 
 // ── Auth ──────────────────────────────────────────────────────────────
 Route::prefix('auth')->group(function () {
-    Route::post('/register',        [AuthController::class, 'register']);
-    Route::post('/login',           [AuthController::class, 'login']);
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/register',        [AuthController::class, 'register'])->middleware('throttle:10,1');
+    Route::post('/login',           [AuthController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
 
     Route::middleware('auth:api')->group(function () {
         Route::get('/me',              [AuthController::class, 'me']);
