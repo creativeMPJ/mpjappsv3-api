@@ -90,6 +90,16 @@ class EventController extends Controller
         return $ticketCode;
     }
 
+    private function assertPusat(): void
+    {
+        $user = auth()->user();
+        $role = $user?->activeRole();
+
+        if (!$role || $role->nama !== 'Admin Pusat') {
+            abort(403, 'Forbidden');
+        }
+    }
+
     private function assertRegional()
     {
         $user    = auth()->user();
@@ -140,6 +150,9 @@ class EventController extends Controller
 
     public function store(Request $request)
     {
+        // Event lewat endpoint ini bersifat global (lintas wilayah), jadi hanya Admin Pusat.
+        $this->assertPusat();
+
         $data = $request->validate([
             'name'        => 'required|string',
             'description' => 'nullable|string',
@@ -181,6 +194,8 @@ class EventController extends Controller
 
     public function submitReport(Request $request, string $id)
     {
+        $regionId = $this->assertRegional();
+
         $data = $request->validate([
             'regionId'          => 'required|string',
             'participationCount' => 'required|integer|min:0',
@@ -188,7 +203,13 @@ class EventController extends Controller
             'photoUrl'          => 'nullable|string',
         ]);
 
-        $existing = EventReport::where('event_id', $id)->where('region_id', $data['regionId'])->first();
+        // regionId dari body tidak dipercaya: tanpa cek ini admin wilayah A
+        // bisa menimpa laporan wilayah B.
+        if ($data['regionId'] !== $regionId) {
+            return response()->json(['message' => 'Anda hanya boleh mengirim laporan untuk wilayah sendiri'], 403);
+        }
+
+        $existing = EventReport::where('event_id', $id)->where('region_id', $regionId)->first();
 
         if ($existing) {
             $existing->update([
@@ -203,7 +224,7 @@ class EventController extends Controller
         $report = EventReport::create([
             'id'                  => Str::uuid(),
             'event_id'            => $id,
-            'region_id'           => $data['regionId'],
+            'region_id'           => $regionId,
             'participation_count' => $data['participationCount'],
             'notes'               => $data['notes'] ?? null,
             'photo_url'           => $data['photoUrl'] ?? null,
@@ -248,7 +269,7 @@ class EventController extends Controller
 
     public function regionalStore(Request $request)
     {
-        $this->assertRegional();
+        $regionId = $this->assertRegional();
 
         $data = $request->validate([
             'name'        => 'required|string',
@@ -260,10 +281,14 @@ class EventController extends Controller
             'certificate_enabled' => 'nullable|boolean',
         ]);
 
+        // events tidak punya kolom wilayah; created_by adalah satu-satunya jejak
+        // kepemilikan yang tersedia, dan harus diisi agar regionalUpdate bisa
+        // memverifikasi pemilik event.
         $event = Event::create(array_merge(['id' => Str::uuid(), 'status' => 'upcoming'], $data, [
             'member_price' => $data['member_price'] ?? FinanceActivationService::getEventMemberPrice(),
             'public_price' => $data['public_price'] ?? FinanceActivationService::getEventPublicPrice(),
             'certificate_enabled' => $data['certificate_enabled'] ?? true,
+            'created_by' => auth()->id(),
         ]));
 
         return response()->json(['success' => true, 'event' => $event]);
@@ -271,7 +296,7 @@ class EventController extends Controller
 
     public function regionalUpdate(Request $request, string $id)
     {
-        $this->assertRegional();
+        $regionId = $this->assertRegional();
 
         $data = $request->validate([
             'name'        => 'nullable|string',
@@ -286,6 +311,19 @@ class EventController extends Controller
 
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'ID tidak valid'], 400);
+
+        // Tabel events tidak menyimpan region_id, jadi kepemilikan wilayah hanya
+        // bisa ditelusuri lewat created_by → profil pembuat → region_id.
+        // Event tanpa created_by tidak punya jejak pemilik dan ditolak.
+        $ownerRegionId = $event->created_by
+            ? PesantrenProfile::where('user_id', $event->created_by)->value('region_id')
+            : null;
+
+        // Pesan disamakan dengan kasus "tidak ditemukan" agar tidak membocorkan
+        // keberadaan event milik wilayah lain.
+        if (!$ownerRegionId || $ownerRegionId !== $regionId) {
+            return response()->json(['message' => 'ID tidak valid'], 400);
+        }
 
         $event->update(array_filter($data, fn($v) => $v !== null));
 

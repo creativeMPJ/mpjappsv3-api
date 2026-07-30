@@ -12,6 +12,44 @@ use Illuminate\Support\Str;
 
 class ClaimController extends Controller
 {
+    private function currentRoleName(): ?string
+    {
+        return auth()->user()?->activeRole()?->nama;
+    }
+
+    private function currentProfile(): ?PesantrenProfile
+    {
+        return PesantrenProfile::where('user_id', auth()->id())->first();
+    }
+
+    /**
+     * Klaim hanya boleh dilihat pemiliknya, Admin Regional di wilayah klaim,
+     * atau Admin Pusat. Tanpa ini siapa pun yang menebak UUID klaim bisa
+     * membaca nama pesantren dan nama pengelola milik orang lain.
+     */
+    private function canAccessClaim(PesantrenClaim $claim): bool
+    {
+        $role = $this->currentRoleName();
+
+        if ($role === 'Admin Pusat') {
+            return true;
+        }
+
+        $profile = $this->currentProfile();
+        if (!$profile) {
+            return false;
+        }
+
+        // pesantren_claims.user_id menyimpan id profil, bukan id user.
+        if ($claim->user_id === $profile->id) {
+            return true;
+        }
+
+        return $role === 'Admin Regional'
+            && $profile->region_id
+            && $claim->region_id === $profile->region_id;
+    }
+
     public function pendingCount(Request $request)
     {
         $user    = auth()->user();
@@ -31,6 +69,20 @@ class ClaimController extends Controller
 
     public function search(Request $request)
     {
+        // Endpoint ini mengembalikan nama & email pengelola, jadi hanya boleh
+        // dipakai admin. Tanpa penjagaan ini user pesantren biasa bisa menarik
+        // data klaim seluruh wilayah.
+        $role    = $this->currentRoleName();
+        $profile = $this->currentProfile();
+
+        if ($role !== 'Admin Pusat' && $role !== 'Admin Regional') {
+            return response()->json(['message' => 'Anda tidak berhak mengakses pencarian klaim'], 403);
+        }
+
+        if ($role === 'Admin Regional' && !$profile?->region_id) {
+            return response()->json(['message' => 'Akun Admin Regional belum terhubung ke wilayah mana pun'], 403);
+        }
+
         $q = trim($request->query('query', ''));
         if (!$q) return response()->json(['results' => []]);
 
@@ -38,6 +90,7 @@ class ClaimController extends Controller
                 $query->where('pesantren_name', 'like', "%{$q}%")
                       ->orWhere('email_pengelola', 'like', "%{$q}%");
             })
+            ->when($role === 'Admin Regional', fn($query) => $query->where('region_id', $profile->region_id))
             ->whereNotIn('status', ['approved', 'pusat_approved'])
             ->orderBy('created_at', 'desc')
             ->take(10)
@@ -185,13 +238,23 @@ class ClaimController extends Controller
     public function contact(Request $request, string $claimId)
     {
         $claim = PesantrenClaim::find($claimId);
-        if (!$claim) return response()->json(['message' => 'Claim tidak ditemukan'], 404);
+
+        // 404 juga untuk yang tidak berhak, supaya keberadaan klaim tidak bocor.
+        if (!$claim || !$this->canAccessClaim($claim)) {
+            return response()->json(['message' => 'Claim tidak ditemukan'], 404);
+        }
 
         $adminPhone = '6281234567890';
 
         if ($claim->region_id) {
-            $regionalAdmin = PesantrenProfile::where('role', 'admin_regional')
-                ->where('region_id', $claim->region_id)
+            // Role tidak disimpan di pesantren_profiles, melainkan di user_roles → roles.
+            $regionalAdmin = PesantrenProfile::where('region_id', $claim->region_id)
+                ->whereIn('user_id', function ($sub) {
+                    $sub->select('user_roles.user_id')
+                        ->from('user_roles')
+                        ->join('roles', 'roles.id', '=', 'user_roles.role_id')
+                        ->where('roles.nama', 'Admin Regional');
+                })
                 ->whereNotNull('no_wa_pendaftar')
                 ->orderBy('updated_at', 'desc')
                 ->first();

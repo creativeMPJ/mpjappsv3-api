@@ -35,6 +35,28 @@ class ProfileController extends Controller
         return $profile;
     }
 
+    /**
+     * Profil milik user sendiri, tanpa fallback ke pesantren tempat kru bertugas.
+     * Dipakai untuk aksi TULIS supaya kru tidak ikut mengubah profil pesantren.
+     */
+    private function resolveOwnedProfile(User $user): ?PesantrenProfile
+    {
+        /** @var PesantrenProfile|null $profile */
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        return $profile;
+    }
+
+    /**
+     * Pengelola pesantren juga tercatat sebagai crew (PIC didaftarkan sebagai
+     * Koordinator), jadi reff_type saja tidak cukup. Yang dianggap "hanya kru"
+     * adalah user ber-reff_type crew yang tidak punya profil pesantren sendiri.
+     */
+    private function isCrewOnly(User $user): bool
+    {
+        return $user->reff_type === 'crew' && !$this->resolveOwnedProfile($user);
+    }
+
     public function getPesantren(Request $request)
     {
         $user    = auth()->user();
@@ -79,8 +101,15 @@ class ProfileController extends Controller
 
     public function updatePesantren(Request $request)
     {
-        $user    = auth()->user();
-        $profile = $this->resolveProfile($user);
+        $user = auth()->user();
+
+        if ($this->isCrewOnly($user)) {
+            return response()->json([
+                'message' => 'Anda terdaftar sebagai Kru Pesantren sehingga tidak berhak mengubah profil pesantren. Silakan hubungi pengelola pesantren.',
+            ], 403);
+        }
+
+        $profile = $this->resolveOwnedProfile($user);
 
         if (!$profile) {
             return response()->json(['message' => 'Profile tidak ditemukan'], 404);
@@ -178,6 +207,18 @@ class ProfileController extends Controller
     {
         $user = auth()->user();
 
+        if ($this->isCrewOnly($user)) {
+            return response()->json([
+                'message' => 'Anda terdaftar sebagai Kru Pesantren sehingga tidak berhak mengubah profil pesantren. Silakan hubungi pengelola pesantren.',
+            ], 403);
+        }
+
+        $profile = $this->resolveOwnedProfile($user);
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile tidak ditemukan'], 404);
+        }
+
         $request->validate([
             'file' => 'required|file|mimes:jpeg,png,jpg|max:2048',
             'type' => 'required|in:logo_pesantren,foto_pengasuh,foto_gedung,logo_media',
@@ -199,7 +240,9 @@ class ProfileController extends Controller
             'logo_media'     => 'logo_media_path',
         ];
 
-        PesantrenProfile::where('id', $user->id)->update([$fieldMap[$type] => $url]);
+        // Kolom id pada pesantren_profiles adalah UUID profil, bukan id user,
+        // sehingga update harus menyasar profil hasil resolve.
+        $profile->update([$fieldMap[$type] => $url]);
 
         return response()->json(['url' => $url]);
     }
