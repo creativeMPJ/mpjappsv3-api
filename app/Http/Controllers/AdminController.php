@@ -1583,7 +1583,12 @@ class AdminController extends Controller
 
         $payments = Payment::with([
             'claim:id,pesantren_name,nama_pengelola,jenis_pengajuan,region_id,mpj_id_number',
+            // Nama wilayah ikut dimuat supaya klien tidak perlu memetakan sendiri
+            // region_id ke nama; tanpa ini filter dan rekap per wilayah di
+            // dashboard keuangan selalu jatuh ke "Tanpa Regional".
+            'claim.region:id,name',
             'user:id,no_wa_pendaftar,status_account,status_payment,nip,nama_pesantren,nama_pengasuh,region_id',
+            'user.region:id,name',
             'paymentLogs:id,payment_id',
         ])
             ->when($request->filled('payment_type'), fn($query) => $query->where('payment_type', $request->input('payment_type')))
@@ -1616,6 +1621,7 @@ class AdminController extends Controller
                     'nama_pengelola'  => $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh,
                     'jenis_pengajuan' => $p->claim?->jenis_pengajuan ?? ($p->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION),
                     'region_id'       => $p->claim?->region_id ?? $p->user?->region_id,
+                    'region_name'     => $p->claim?->region?->name ?? $p->user?->region?->name,
                     'mpj_id_number'   => $p->claim?->mpj_id_number ?? $p->user?->nip,
                 ],
                 'profiles' => [
@@ -1977,7 +1983,10 @@ class AdminController extends Controller
 
         $pkg->update(['is_active' => !$pkg->is_active]);
 
-        return response()->json(['success' => true, 'is_active' => !$pkg->is_active]);
+        // Setelah update(), atribut model sudah berisi nilai BARU. Menegasikannya
+        // lagi di sini membuat respons mengirim nilai lama, sehingga klien
+        // menampilkan status yang berlawanan dengan isi database.
+        return response()->json(['success' => true, 'is_active' => (bool) $pkg->is_active]);
     }
 
     public function financeStats(Request $request)
@@ -1991,7 +2000,9 @@ class AdminController extends Controller
                 FinanceActivationService::STATUS_WAITING_VERIFICATION,
             ])->count(),
             'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
-            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('updated_at', today())->count(),
+            // rejected_at, bukan updated_at: perubahan apa pun pada baris hari ini
+            // sebelumnya ikut terhitung sebagai penolakan hari ini.
+            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('rejected_at', today())->count(),
         ]);
     }
 }

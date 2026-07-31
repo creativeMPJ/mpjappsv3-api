@@ -239,7 +239,11 @@ class EventController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        $events = Event::orderBy('date', 'desc')->get();
+        // Sebelumnya semua wilayah melihat daftar yang sama persis. Event dengan
+        // region_id NULL adalah event nasional dan tetap terlihat oleh semua.
+        $events = Event::where(fn($query) => $query->whereNull('region_id')->orWhere('region_id', $regionId))
+            ->orderBy('date', 'desc')
+            ->get();
 
         $myReports = EventReport::where('region_id', $regionId)
             ->get(['id', 'event_id', 'participation_count', 'notes', 'submitted_at'])
@@ -281,14 +285,14 @@ class EventController extends Controller
             'certificate_enabled' => 'nullable|boolean',
         ]);
 
-        // events tidak punya kolom wilayah; created_by adalah satu-satunya jejak
-        // kepemilikan yang tersedia, dan harus diisi agar regionalUpdate bisa
-        // memverifikasi pemilik event.
+        // region_id menandai event ini milik wilayah pembuatnya, dan menjadi
+        // dasar pengecekan kepemilikan di regionalUpdate.
         $event = Event::create(array_merge(['id' => Str::uuid(), 'status' => 'upcoming'], $data, [
             'member_price' => $data['member_price'] ?? FinanceActivationService::getEventMemberPrice(),
             'public_price' => $data['public_price'] ?? FinanceActivationService::getEventPublicPrice(),
             'certificate_enabled' => $data['certificate_enabled'] ?? true,
             'created_by' => auth()->id(),
+            'region_id'  => $regionId,
         ]));
 
         return response()->json(['success' => true, 'event' => $event]);
@@ -312,16 +316,10 @@ class EventController extends Controller
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'ID tidak valid'], 400);
 
-        // Tabel events tidak menyimpan region_id, jadi kepemilikan wilayah hanya
-        // bisa ditelusuri lewat created_by → profil pembuat → region_id.
-        // Event tanpa created_by tidak punya jejak pemilik dan ditolak.
-        $ownerRegionId = $event->created_by
-            ? PesantrenProfile::where('user_id', $event->created_by)->value('region_id')
-            : null;
-
-        // Pesan disamakan dengan kasus "tidak ditemukan" agar tidak membocorkan
-        // keberadaan event milik wilayah lain.
-        if (!$ownerRegionId || $ownerRegionId !== $regionId) {
+        // Event nasional (region_id NULL) hanya boleh diubah Admin Pusat lewat
+        // jalur lain. Pesan disamakan dengan kasus "tidak ditemukan" agar tidak
+        // membocorkan keberadaan event milik wilayah lain.
+        if ($event->region_id !== $regionId) {
             return response()->json(['message' => 'ID tidak valid'], 400);
         }
 
