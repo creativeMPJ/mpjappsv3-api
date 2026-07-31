@@ -20,6 +20,11 @@ class FinanceActivationService
     public const TYPE_EVENT_REGISTRATION = 'event_registration';
     public const TYPE_SLOT_ADDON = 'slot_addon';
 
+    // Batas percobaan penerbitan NIAM. Kolom crews.niam belum punya unique
+    // constraint sehingga kandidat diverifikasi di aplikasi; percobaannya
+    // dibatasi supaya tidak berputar tanpa henti saat data tidak konsisten.
+    private const NIAM_MAX_ATTEMPTS = 5;
+
     public const STATUS_PENDING = 'pending';
     public const STATUS_WAITING_VERIFICATION = 'waiting_verification';
     public const STATUS_VERIFIED = 'verified';
@@ -250,20 +255,57 @@ class FinanceActivationService
 
         if ($jabatanCodeId) {
             $jabatanCode = JabatanCode::find($jabatanCodeId);
-            $crewSeq = Crew::where('jabatan_code_id', $jabatanCodeId)
-                ->whereHas('profile', fn($query) => $query->where('region_id', $profile->region_id))
-                ->where('status', 'active')
-                ->count();
 
-            return $jabatanCode->code . $profile->nip . str_pad($crewSeq + 1, 2, '0', STR_PAD_LEFT);
+            return self::nextNiamForPrefix($jabatanCode->code . $profile->nip);
         }
 
-        return $profile->nip . str_pad(
-            Crew::where('profile_id', $profile->id)->where('status', 'active')->count() + 1,
-            2,
-            '0',
-            STR_PAD_LEFT
-        );
+        return self::nextNiamForPrefix((string) $profile->nip);
+    }
+
+    /**
+     * Nomor urut NIAM diambil dari nomor tertinggi yang sudah terbit untuk
+     * prefix tersebut, bukan dari count() baris crew. count() memakai ulang
+     * nomor begitu ada crew yang dihapus atau statusnya bukan lagi active,
+     * sehingga dua crew bisa memegang NIAM yang sama. Kolom crews.niam belum
+     * punya unique constraint, jadi kandidat diverifikasi di sini.
+     *
+     * Format dipertahankan: prefix + 2 digit nomor urut.
+     */
+    private static function nextNiamForPrefix(string $prefix): string
+    {
+        $sequence = self::highestNiamSequence($prefix);
+
+        for ($attempt = 0; $attempt < self::NIAM_MAX_ATTEMPTS; $attempt++) {
+            $sequence++;
+
+            if ($sequence > 99) {
+                throw new \RuntimeException('Kuota NIAM untuk prefix ini sudah habis.');
+            }
+
+            $candidate = $prefix . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT);
+
+            if (!Crew::where('niam', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+
+        throw new \RuntimeException('Gagal menerbitkan NIAM unik setelah beberapa percobaan.');
+    }
+
+    private static function highestNiamSequence(string $prefix): int
+    {
+        $highest = 0;
+        $pattern = '/^' . preg_quote($prefix, '/') . '(\d{2})$/';
+
+        $issued = Crew::where('niam', 'like', $prefix . '%')->pluck('niam');
+
+        foreach ($issued as $niam) {
+            if (preg_match($pattern, (string) $niam, $matches)) {
+                $highest = max($highest, (int) $matches[1]);
+            }
+        }
+
+        return $highest;
     }
 
     public static function approveCrewActivation(Payment $payment, User $actor): Crew

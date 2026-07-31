@@ -141,16 +141,41 @@ class RegionalController extends Controller
         ]);
     }
 
+    /**
+     * Transisi status klaim hanya boleh dari 'pending'. Status lain berarti
+     * pengajuan sudah pernah diproses dan tidak boleh diubah lagi lewat
+     * endpoint approve/reject.
+     */
+    private function assertClaimPending(PesantrenClaim $claim): void
+    {
+        if ($claim->status === 'pending') {
+            return;
+        }
+
+        abort(response()->json([
+            'message' => "Pengajuan ini berstatus {$claim->status} sehingga tidak bisa diproses lagi.",
+            'status'  => $claim->status,
+        ], 409));
+    }
+
     public function approveClaim(Request $request, string $id)
     {
         $regionId = $this->assertRegional();
 
-        $claim = PesantrenClaim::find($id);
-        if (!$claim || $claim->region_id !== $regionId) {
-            return response()->json(['message' => 'Claim tidak ditemukan'], 404);
-        }
+        DB::transaction(function () use ($id, $regionId) {
+            $claim = PesantrenClaim::whereKey($id)->lockForUpdate()->first();
 
-        DB::transaction(function () use ($claim) {
+            if (!$claim || $claim->region_id !== $regionId) {
+                abort(response()->json(['message' => 'Claim tidak ditemukan'], 404));
+            }
+
+            // Hanya pengajuan yang masih menunggu yang boleh disetujui. Tanpa ini
+            // klaim yang sudah ditolak bisa disetujui ulang, dan baris 'notes' di
+            // bawah menghapus alasan penolakannya tanpa jejak. Approve dua kali
+            // juga me-reset regional_approved_at sehingga hitungan keterlambatan
+            // di latePayments() dan performance() kembali nol.
+            $this->assertClaimPending($claim);
+
             $claim->update([
                 'status'               => 'regional_approved',
                 'regional_approved_at' => now(),
@@ -190,12 +215,15 @@ class RegionalController extends Controller
             'reason' => 'required|string|min:1',
         ]);
 
-        $claim = PesantrenClaim::find($id);
-        if (!$claim || $claim->region_id !== $regionId) {
-            return response()->json(['message' => 'Claim tidak ditemukan'], 404);
-        }
+        DB::transaction(function () use ($id, $regionId, $data) {
+            $claim = PesantrenClaim::whereKey($id)->lockForUpdate()->first();
 
-        DB::transaction(function () use ($claim, $data) {
+            if (!$claim || $claim->region_id !== $regionId) {
+                abort(response()->json(['message' => 'Claim tidak ditemukan'], 404));
+            }
+
+            $this->assertClaimPending($claim);
+
             $claim->update([
                 'status' => 'rejected',
                 'notes'  => $data['reason'],
@@ -237,7 +265,10 @@ class RegionalController extends Controller
                 'regional_approved_at' => $c->regional_approved_at,
                 'jenis_pengajuan'      => $c->jenis_pengajuan,
                 'no_wa_pendaftar'      => $c->profile?->no_wa_pendaftar,
-                'days_overdue'         => max(0, (int) now()->diffInDays($c->regional_approved_at->addDays(7), false) * -1),
+                // copy() wajib: Carbon bersifat mutable dan objek yang sama sudah
+                // dipakai di field regional_approved_at di atas. Tanpa copy(),
+                // addDays(7) ikut menggeser nilai yang dikirim ke klien.
+                'days_overdue'         => max(0, (int) now()->diffInDays($c->regional_approved_at->copy()->addDays(7), false) * -1),
             ]),
         ]);
     }
@@ -246,6 +277,15 @@ class RegionalController extends Controller
     {
         $regionId = $this->assertRegional();
         $user     = auth()->user();
+
+        // claimId sebelumnya ditulis mentah ke log. Akibatnya id acak melanggar
+        // foreign key dan menghasilkan 500, dan admin bisa mencatat follow-up
+        // untuk klaim wilayah lain sehingga angka weeklyFollowUps di
+        // performance() menggelembung.
+        $claim = PesantrenClaim::whereKey($claimId)->first();
+        if (!$claim || $claim->region_id !== $regionId) {
+            return response()->json(['message' => 'Claim tidak ditemukan'], 404);
+        }
 
         FollowUpLog::create([
             'id'          => Str::uuid(),
