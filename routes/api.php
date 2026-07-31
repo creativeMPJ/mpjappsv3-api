@@ -47,6 +47,10 @@ Route::prefix('public')->group(function () {
     Route::get('/pesantren/{nip}/profile',          [PublicController::class, 'pesantrenProfile']);
     Route::get('/pesantren/{nip}/crew/{niamSuffix}', [PublicController::class, 'pesantrenCrew']);
 
+    // Verifikasi kartu anggota: hanya mengembalikan nama, pesantren, dan jabatan
+    // — data yang sudah tercetak di kartu dan tampil di /pesantren/{nip}/crew.
+    Route::get('/lookup-niam',                      [PublicController::class, 'lookupNiam']);
+
     // Event registration (Kemah Film MPJ 2026, dst)
     Route::post('/event-registration/upload',       [EventRegistrationController::class, 'upload']);
     Route::post('/event-registration',              [EventRegistrationController::class, 'store']);
@@ -111,7 +115,19 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/late-payments/{claimId}/follow-up', [RegionalController::class, 'followUp']);
         Route::get('/performance',                        [RegionalController::class, 'performance']);
         Route::get('/leaderboard',                        [RegionalController::class, 'leaderboard']);
+
+        // Laporan & dokumentasi regional
+        Route::get('/reports',                            [RegionalController::class, 'reports']);
+        Route::post('/reports',                           [RegionalController::class, 'submitReport']);
+        Route::delete('/reports/{id}',                    [RegionalController::class, 'deleteReport']);
+
+        Route::get('/download-center',                    [RegionalController::class, 'downloadCenter']);
+        Route::get('/militansi-overview',                 [RegionalController::class, 'militansiOverview']);
     });
+
+    // ── MPJ Hub & Militansi XP (semua user login) ─────────────────────
+    Route::get('/hub/resources',      [AdminController::class, 'hubResources']);
+    Route::get('/militansi/overview', [AdminController::class, 'myMilitansiOverview']);
 
     // ── Admin pusat ───────────────────────────────────────────────────
     Route::prefix('admin')->group(function () {
@@ -161,6 +177,7 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/regional-management/cities',         [AdminController::class, 'addCity']);
         Route::delete('/regional-management/cities/{id}',  [AdminController::class, 'deleteCity']);
         Route::post('/regional-management/assign-admin',   [AdminController::class, 'assignRegionalAdmin']);
+        Route::post('/regional-management/regions/merge',  [AdminController::class, 'mergeRegions']);
 
         // Users management
         Route::get('/users-management',                    [AdminController::class, 'usersManagement']);
@@ -180,6 +197,20 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/payments',                            [AdminController::class, 'payments']);
         Route::post('/payments/{id}/reject',               [AdminController::class, 'rejectPayment']);
         Route::post('/payments/{id}/approve',              [AdminController::class, 'approvePayment']);
+        Route::get('/payments/{id}/logs',                  [AdminController::class, 'paymentLogs']);
+        Route::post('/payments/{id}/cancel',               [AdminController::class, 'cancelPayment']);
+        Route::post('/payments/{id}/expire',               [AdminController::class, 'expirePayment']);
+
+        // Audit log
+        Route::get('/audit-logs',                          [AdminController::class, 'auditLogs']);
+
+        // MPJ Hub (pengelolaan materi)
+        Route::get('/hub-resources',                       [AdminController::class, 'adminHubResources']);
+        Route::post('/hub-resources',                      [AdminController::class, 'storeHubResource']);
+        Route::delete('/hub-resources/{id}',               [AdminController::class, 'deleteHubResource']);
+
+        // Militansi XP
+        Route::get('/militansi-summary',                   [AdminController::class, 'militansiSummary']);
 
         // Leveling
         Route::get('/leveling-profiles',                   [AdminController::class, 'levelingProfiles']);
@@ -218,5 +249,20 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/regional',               [EventController::class, 'regionalStore']);
         Route::put('/regional/{id}',           [EventController::class, 'regionalUpdate']);
         Route::post('/regional/{id}/report',   [EventController::class, 'regionalSubmitReport']);
+
+        // Tiket & sertifikat milik user login
+        Route::get('/my-registrations',        [EventController::class, 'myRegistrations']);
+        Route::get('/my-history',              [EventController::class, 'myHistory']);
+        Route::get('/my-certificates',         [EventController::class, 'myCertificates']);
+        Route::get('/my-tickets/{registrationId}', [EventController::class, 'myTicket']);
+
+        // Peserta & check-in
+        Route::get('/{id}/participants',       [EventController::class, 'participants']);
+        Route::post('/{id}/register',          [EventController::class, 'register']);
+        Route::post('/{id}/check-ticket',      [EventController::class, 'checkTicket']);
+        Route::post('/{id}/check-in',          [EventController::class, 'checkIn']);
+
+        // Harus terakhir: pola {id} satu segmen akan menelan /regional dan /my-*.
+        Route::get('/{id}',                    [EventController::class, 'show']);
     });
 });

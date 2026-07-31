@@ -34,20 +34,64 @@ class RegionalController extends Controller
         return $profile->region_id;
     }
 
+    /**
+     * Membatasi daftar yang bisa membesar tanpa mengubah bentuk response.
+     *
+     * Bentuk key lama tetap array biasa supaya frontend yang masih memfilter di
+     * sisi klien tidak rusak; metadata halaman dikirim terpisah di key
+     * 'pagination'. Ukuran halaman dibaca per-daftar (mis. profiles_per_page)
+     * lalu jatuh ke parameter umum per_page, sebab satu response bisa memuat
+     * lebih dari satu daftar yang perlu dipaginasi sendiri-sendiri.
+     */
+    private function paginateList($query, Request $request, string $key, array $columns = ['*'], int $defaultPerPage = 200, int $maxPerPage = 1000): array
+    {
+        $perPage = (int) ($request->query($key . '_per_page') ?? $request->query('per_page') ?? $defaultPerPage);
+        // Dibatasi supaya per_page=999999 tidak mengembalikan lagi payload tanpa batas.
+        $perPage = max(1, min($perPage, $maxPerPage));
+
+        $page = max(1, (int) ($request->query($key . '_page') ?? $request->query('page') ?? 1));
+
+        $paginator = $query->paginate($perPage, $columns, $key . '_page', $page);
+
+        return [
+            $paginator->getCollection(),
+            [
+                'page'      => $paginator->currentPage(),
+                'per_page'  => $paginator->perPage(),
+                'total'     => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+                'from'      => $paginator->firstItem(),
+                'to'        => $paginator->lastItem(),
+                'has_more'  => $paginator->hasMorePages(),
+            ],
+        ];
+    }
+
     public function masterData(Request $request)
     {
         $regionId = $this->assertRegional();
 
-        $profiles = PesantrenProfile::where('region_id', $regionId)
-            ->orderBy('nama_pesantren')
-            ->get(['id', 'nama_pesantren', 'nama_pengasuh', 'status_account', 'status_payment', 'profile_level', 'no_wa_pendaftar', 'nip']);
+        [$profiles, $profilesMeta] = $this->paginateList(
+            PesantrenProfile::where('region_id', $regionId)->orderBy('nama_pesantren'),
+            $request,
+            'profiles',
+            ['id', 'nama_pesantren', 'nama_pengasuh', 'status_account', 'status_payment', 'profile_level', 'no_wa_pendaftar', 'nip']
+        );
 
-        $crews = Crew::with('profile:id,nama_pesantren,region_id')
-            ->whereHas('profile', fn($q) => $q->where('region_id', $regionId))
-            ->orderBy('nama')
-            ->get(['id', 'profile_id', 'nama', 'jabatan', 'niam', 'status', 'xp_level']);
+        [$crews, $crewsMeta] = $this->paginateList(
+            Crew::with('profile:id,nama_pesantren,region_id')
+                ->whereHas('profile', fn($q) => $q->where('region_id', $regionId))
+                ->orderBy('nama'),
+            $request,
+            'crews',
+            ['id', 'profile_id', 'nama', 'jabatan', 'niam', 'status', 'xp_level']
+        );
 
         return response()->json([
+            'pagination' => [
+                'profiles' => $profilesMeta,
+                'crews'    => $crewsMeta,
+            ],
             'profiles' => $profiles->map(fn($p) => [
                 'id'             => $p->id,
                 'nama_pesantren' => $p->nama_pesantren,
@@ -74,13 +118,17 @@ class RegionalController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        $claims = PesantrenClaim::with('profile')
-            ->where('region_id', $regionId)
-            ->where('status', 'pending')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        [$claims, $claimsMeta] = $this->paginateList(
+            PesantrenClaim::with('profile')
+                ->where('region_id', $regionId)
+                ->where('status', 'pending')
+                ->orderBy('created_at', 'desc'),
+            $request,
+            'claims'
+        );
 
         return response()->json([
+            'pagination' => ['claims' => $claimsMeta],
             'claims' => $claims->map(fn($c) => [
                 'id'               => $c->id,
                 'user_id'          => $c->user_id,
@@ -240,24 +288,29 @@ class RegionalController extends Controller
         $regionId    = $this->assertRegional();
         $sevenDaysAgo = now()->subDays(7);
 
-        $claims = PesantrenClaim::with('profile:id,no_wa_pendaftar')
-            ->where('region_id', $regionId)
-            ->where('status', 'regional_approved')
-            ->whereNotNull('regional_approved_at')
-            ->where('regional_approved_at', '<', $sevenDaysAgo)
-            ->orderBy('regional_approved_at')
-            ->get();
+        // Klaim yang sudah lunas dibuang lewat subquery, bukan lewat filter di PHP.
+        // Kalau penyaringan tetap dilakukan setelah data diambil, jumlah baris per
+        // halaman jadi tidak menentu dan angka total pada metadata ikut salah.
+        $verifiedClaimIds = Payment::query()
+            ->select('pesantren_claim_id')
+            ->whereNotNull('pesantren_claim_id')
+            ->where('status', 'verified');
 
-        $claimIds   = $claims->pluck('id')->all();
-        $payments   = $claimIds
-            ? Payment::whereIn('pesantren_claim_id', $claimIds)->get(['pesantren_claim_id', 'status'])
-            : collect();
-        $paymentMap = $payments->keyBy('pesantren_claim_id');
-
-        $filtered = $claims->filter(fn($c) => ($paymentMap[$c->id]->status ?? null) !== 'verified');
+        [$claims, $claimsMeta] = $this->paginateList(
+            PesantrenClaim::with('profile:id,no_wa_pendaftar')
+                ->where('region_id', $regionId)
+                ->where('status', 'regional_approved')
+                ->whereNotNull('regional_approved_at')
+                ->where('regional_approved_at', '<', $sevenDaysAgo)
+                ->whereNotIn('id', $verifiedClaimIds)
+                ->orderBy('regional_approved_at'),
+            $request,
+            'claims'
+        );
 
         return response()->json([
-            'claims' => $filtered->values()->map(fn($c) => [
+            'pagination' => ['claims' => $claimsMeta],
+            'claims' => $claims->values()->map(fn($c) => [
                 'id'                   => $c->id,
                 'user_id'              => $c->user_id,
                 'pesantren_name'       => $c->pesantren_name,
@@ -342,16 +395,30 @@ class RegionalController extends Controller
     {
         $myRegionId = $this->assertRegional();
 
-        $regions = Region::orderBy('name')->get(['id', 'name']);
+        // Dua COUNT per region di dalam map() berarti 2N query. Hitungannya
+        // dipindah ke subquery agregat sehingga seluruh leaderboard cukup 1 query.
+        $regions = Region::query()
+            ->select('id', 'name')
+            ->selectSub(
+                PesantrenClaim::query()
+                    ->selectRaw('count(*)')
+                    ->whereColumn('pesantren_claims.region_id', 'regions.id')
+                    ->whereIn('status', ['regional_approved', 'approved', 'pusat_approved']),
+                'total_verified'
+            )
+            ->selectSub(
+                PesantrenProfile::query()
+                    ->selectRaw('count(*)')
+                    ->whereColumn('pesantren_profiles.region_id', 'regions.id')
+                    ->where('status_payment', 'paid'),
+                'total_paid'
+            )
+            ->orderBy('name')
+            ->get();
 
         $stats = $regions->map(function ($r) {
-            $verified = PesantrenClaim::where('region_id', $r->id)
-                ->whereIn('status', ['regional_approved', 'approved', 'pusat_approved'])
-                ->count();
-
-            $paid = PesantrenProfile::where('region_id', $r->id)
-                ->where('status_payment', 'paid')
-                ->count();
+            $verified = (int) $r->total_verified;
+            $paid     = (int) $r->total_paid;
 
             return [
                 'region_id'       => $r->id,
@@ -376,12 +443,16 @@ class RegionalController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        $reports = RegionalReport::where('region_id', $regionId)
-            ->orderByDesc('report_date')
-            ->orderByDesc('created_at')
-            ->get();
+        [$reports, $reportsMeta] = $this->paginateList(
+            RegionalReport::where('region_id', $regionId)
+                ->orderByDesc('report_date')
+                ->orderByDesc('created_at'),
+            $request,
+            'reports'
+        );
 
         return response()->json([
+            'pagination' => ['reports' => $reportsMeta],
             'reports' => $reports->map(fn($report) => [
                 'id' => $report->id,
                 'title' => $report->title,
@@ -466,18 +537,22 @@ class RegionalController extends Controller
     {
         $this->assertRegional();
 
-        $resources = HubResource::query()
-            ->where('is_published', true)
-            ->where(function ($query) {
-                $query->whereNull('visibility_scopes')
-                    ->orWhereJsonContains('visibility_scopes', 'all')
-                    ->orWhereJsonContains('visibility_scopes', 'admin_regional');
-            })
-            ->orderBy('sort_order')
-            ->orderByDesc('created_at')
-            ->get();
+        [$resources, $resourcesMeta] = $this->paginateList(
+            HubResource::query()
+                ->where('is_published', true)
+                ->where(function ($query) {
+                    $query->whereNull('visibility_scopes')
+                        ->orWhereJsonContains('visibility_scopes', 'all')
+                        ->orWhereJsonContains('visibility_scopes', 'admin_regional');
+                })
+                ->orderBy('sort_order')
+                ->orderByDesc('created_at'),
+            $request,
+            'resources'
+        );
 
         return response()->json([
+            'pagination' => ['resources' => $resourcesMeta],
             'resources' => $resources->map(fn($resource) => [
                 'id' => $resource->id,
                 'title' => $resource->title,
@@ -496,23 +571,43 @@ class RegionalController extends Controller
         $regionId = $this->assertRegional();
 
         $levels = MilitansiLevel::orderBy('min_xp')->get(['id', 'name', 'min_xp', 'color']);
-        $crews = Crew::with('profile:id,region_id,nama_pesantren')
-            ->whereHas('profile', fn($query) => $query->where('region_id', $regionId))
-            ->orderByDesc('xp_level')
-            ->orderBy('nama')
-            ->get(['id', 'profile_id', 'nama', 'jabatan', 'status', 'niam', 'xp_level']);
+
+        $crewQuery = fn() => Crew::query()
+            ->whereHas('profile', fn($query) => $query->where('region_id', $regionId));
+
+        // Ringkasan dihitung lewat agregat di database supaya tetap mencakup
+        // SELURUH kru walaupun daftarnya sudah dibatasi per halaman.
+        $summary = [
+            'total_crews'  => $crewQuery()->count(),
+            'active_crews' => $crewQuery()->where('status', 'active')->count(),
+            'average_xp'   => (int) round($crewQuery()->avg('xp_level') ?? 0),
+        ];
+
+        // Sebelumnya seluruh kru diambil lalu dipotong take(20) di PHP; batasnya
+        // sekarang ada di query. Default 20 mempertahankan perilaku lama.
+        [$crews, $crewsMeta] = $this->paginateList(
+            Crew::with('profile:id,region_id,nama_pesantren')
+                ->whereHas('profile', fn($query) => $query->where('region_id', $regionId))
+                ->orderByDesc('xp_level')
+                ->orderBy('nama'),
+            $request,
+            'leaderboard',
+            ['id', 'profile_id', 'nama', 'jabatan', 'status', 'niam', 'xp_level'],
+            20,
+            200
+        );
+
+        // Peringkat harus melanjutkan halaman sebelumnya, bukan mulai dari 1 lagi.
+        $rankOffset = ($crewsMeta['page'] - 1) * $crewsMeta['per_page'];
 
         return response()->json([
-            'summary' => [
-                'total_crews' => $crews->count(),
-                'active_crews' => $crews->where('status', 'active')->count(),
-                'average_xp' => (int) round($crews->avg('xp_level') ?? 0),
-            ],
+            'pagination' => ['leaderboard' => $crewsMeta],
+            'summary' => $summary,
             'levels' => $levels,
-            'leaderboard' => $crews->take(20)->values()->map(function ($crew, $index) use ($levels) {
+            'leaderboard' => $crews->values()->map(function ($crew, $index) use ($levels, $rankOffset) {
                 $level = $levels->filter(fn($item) => $crew->xp_level >= $item->min_xp)->sortByDesc('min_xp')->first();
                 return [
-                    'rank' => $index + 1,
+                    'rank' => $rankOffset + $index + 1,
                     'name' => $crew->nama,
                     'jabatan' => $crew->jabatan,
                     'niam' => $crew->niam,

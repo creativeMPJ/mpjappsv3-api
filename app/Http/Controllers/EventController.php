@@ -100,6 +100,23 @@ class EventController extends Controller
         }
     }
 
+    /**
+     * Panitia event: Admin Pusat, Admin Regional, dan Koordinator. Dipakai untuk
+     * endpoint yang membuka data peserta (nomor HP dan email) atau mengubah
+     * status kehadiran. Tanpa ini user mana pun yang login bisa menarik kontak
+     * seluruh peserta dan menandai tiket orang lain sebagai hadir, yang membuat
+     * tiket korban tidak bisa dipakai lagi.
+     */
+    private function assertPanitia(): void
+    {
+        $role = auth()->user()?->activeRole();
+        $allowed = ['Admin Pusat', 'Admin Regional', 'Koordinator'];
+
+        if (!$role || !in_array($role->nama, $allowed, true)) {
+            abort(403, 'Forbidden');
+        }
+    }
+
     private function assertRegional()
     {
         $user    = auth()->user();
@@ -361,6 +378,8 @@ class EventController extends Controller
 
     public function participants(Request $request, string $id)
     {
+        $this->assertPanitia();
+
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'Event not found'], 404);
 
@@ -543,6 +562,10 @@ class EventController extends Controller
 
     public function checkTicket(Request $request, string $id)
     {
+        // Endpoint scanner panitia: mengembalikan identitas pemilik tiket, jadi
+        // tidak boleh bisa dipakai sembarang user untuk menebak kode tiket.
+        $this->assertPanitia();
+
         $ticketCode = $request->validate([
             'ticketCode' => 'required|string',
         ])['ticketCode'];
@@ -582,6 +605,8 @@ class EventController extends Controller
 
     public function checkIn(Request $request, string $id)
     {
+        $this->assertPanitia();
+
         $user = auth()->user();
         $ticketCode = $request->validate([
             'ticketCode' => 'required|string',

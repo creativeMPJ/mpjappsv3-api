@@ -22,6 +22,7 @@ use App\Models\UserRole;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -37,6 +38,21 @@ class AdminController extends Controller
     private const PAYMENT_ACTIONABLE_STATUSES = [
         FinanceActivationService::STATUS_PENDING,
         FinanceActivationService::STATUS_WAITING_VERIFICATION,
+    ];
+
+    // Seluruh tabel yang menyimpan kolom region_id (hasil penelusuran
+    // database/migrations). Dipakai saat penggabungan regional supaya tidak ada
+    // baris yang tertinggal menunjuk ke regional yang sudah dihapus.
+    // region_regencies sengaja tidak ada di sini: kuncinya gabungan dan
+    // ditangani terpisah di mergeRegions().
+    private const REGION_REFERENCE_TABLES = [
+        'pesantren_profiles',
+        'pesantren_claims',
+        'pesantren_directory',
+        'regional_reports',
+        'follow_up_logs',
+        'event_reports',
+        'events',
     ];
 
     /**
@@ -934,6 +950,93 @@ class AdminController extends Controller
         Region::where('id', $id)->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    public function mergeRegions(Request $request)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'sourceId' => 'required|uuid',
+            'targetId' => 'required|uuid|different:sourceId',
+            'newName'  => 'required|string',
+            'newCode'  => 'required|string|regex:/^\d{2}$/',
+        ], [
+            'sourceId.required'  => 'Regional sumber wajib dipilih',
+            'sourceId.uuid'      => 'ID regional sumber tidak valid',
+            'targetId.required'  => 'Regional tujuan wajib dipilih',
+            'targetId.uuid'      => 'ID regional tujuan tidak valid',
+            'targetId.different' => 'Regional sumber dan tujuan tidak boleh sama',
+            'newName.required'   => 'Nama regional hasil penggabungan wajib diisi',
+            'newCode.required'   => 'Kode regional hasil penggabungan wajib diisi',
+            'newCode.regex'      => 'Kode regional harus 2 digit angka',
+        ]);
+
+        $source = Region::find($data['sourceId']);
+        if (!$source) {
+            return response()->json(['message' => 'Regional sumber tidak ditemukan'], 404);
+        }
+
+        $target = Region::find($data['targetId']);
+        if (!$target) {
+            return response()->json(['message' => 'Regional tujuan tidak ditemukan'], 404);
+        }
+
+        // Kode milik kedua regional yang digabung dikecualikan: keduanya bebas
+        // dipakai ulang sebagai kode hasil penggabungan.
+        $codeTaken = Region::where('code', $data['newCode'])
+            ->whereNotIn('id', [$source->id, $target->id])
+            ->exists();
+
+        if ($codeTaken) {
+            return response()->json(['message' => 'Kode regional sudah digunakan'], 409);
+        }
+
+        DB::transaction(function () use ($source, $target, $data) {
+            foreach (self::REGION_REFERENCE_TABLES as $table) {
+                // Sebagian tabel dibuat bersyarat di migration, jadi keberadaannya
+                // diperiksa dulu agar merge tidak gagal di instalasi lama.
+                if (!Schema::hasTable($table) || !Schema::hasColumn($table, 'region_id')) {
+                    continue;
+                }
+
+                DB::table($table)
+                    ->where('region_id', $source->id)
+                    ->update(['region_id' => $target->id]);
+            }
+
+            // region_regencies berkunci gabungan (region_id, regency_id):
+            // kabupaten yang sudah terdaftar di regional tujuan harus dibuang,
+            // bukan dipindahkan, supaya update tidak menabrak primary key.
+            if (Schema::hasTable('region_regencies')) {
+                $targetRegencies = DB::table('region_regencies')
+                    ->where('region_id', $target->id)
+                    ->pluck('regency_id');
+
+                DB::table('region_regencies')
+                    ->where('region_id', $source->id)
+                    ->whereIn('regency_id', $targetRegencies)
+                    ->delete();
+
+                DB::table('region_regencies')
+                    ->where('region_id', $source->id)
+                    ->update(['region_id' => $target->id]);
+            }
+
+            $target->update(['name' => $data['newName'], 'code' => $data['newCode']]);
+            $source->delete();
+        });
+
+        $merged = $target->fresh();
+
+        return response()->json([
+            'success' => true,
+            'region'  => [
+                'id'   => $merged->id,
+                'name' => $merged->name,
+                'code' => $merged->code,
+            ],
+        ]);
     }
 
     public function addCity(Request $request)
@@ -1963,13 +2066,26 @@ class AdminController extends Controller
         $pkg = PricingPackage::find($id);
         if (!$pkg) return response()->json(['message' => 'ID tidak valid'], 400);
 
-        $pkg->update(array_filter([
-            'name'         => $data['name'] ?? null,
-            'category'     => $data['category'] ?? null,
-            'harga_paket'  => $data['hargaPaket'] ?? null,
-            'harga_diskon' => $data['hargaDiskon'] ?? null,
-            'is_active'    => $data['isActive'] ?? null,
-        ], fn($v) => $v !== null));
+        $updates = [];
+
+        // Kolom-kolom ini tidak boleh kosong di database, jadi null diperlakukan
+        // sama dengan "tidak dikirim": nilai lama dipertahankan.
+        foreach (['name' => 'name', 'category' => 'category', 'hargaPaket' => 'harga_paket', 'isActive' => 'is_active'] as $input => $column) {
+            if ($request->has($input) && ($data[$input] ?? null) !== null) {
+                $updates[$column] = $data[$input];
+            }
+        }
+
+        // Diskon berbeda: null yang dikirim secara eksplisit berarti diskon
+        // dicabut. Dulu array_filter membuang null tersebut sehingga diskon yang
+        // sudah tersimpan tidak pernah bisa dihapus lewat API.
+        if ($request->exists('hargaDiskon')) {
+            $updates['harga_diskon'] = $data['hargaDiskon'] ?? null;
+        }
+
+        if ($updates) {
+            $pkg->update($updates);
+        }
 
         return response()->json(['success' => true]);
     }

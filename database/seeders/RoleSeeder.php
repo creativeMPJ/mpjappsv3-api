@@ -38,10 +38,16 @@ class RoleSeeder extends Seeder
             'admin-regional-manajemen-event' => $off,
 
             // Admin Finance
-            'verifikasi'                     => $off,
+            // Nama key diselaraskan dengan yang benar-benar dibaca frontend
+            // (CmsLayout + AKSES_KEY_MAP): verifikasi→payment, harga→master-keuangan,
+            // clearing→kas. Sebelumnya key backend tidak pernah cocok sehingga
+            // akses[key]?.view bernilai undefined dan menu keuangan selalu tampil.
+            'payment'                        => $off,
             'laporan-keuangan'               => $off,
-            'harga'                          => $off,
-            'clearing'                       => $off,
+            'master-keuangan'                => $off,
+            'kas'                            => $off,
+            // Tidak punya menu di CmsLayout, tapi masih dirender sebagai toggle di
+            // halaman Hak Akses. Tetap diseed eksplisit false supaya tidak undefined.
             'regional-monitoring'            => $off,
 
             // Super Admin
@@ -79,10 +85,10 @@ class RoleSeeder extends Seeder
             'hub',                    // MPJ Hub
             'pengaturan',
             // Finance detail
-            'verifikasi',
+            'payment',
             'laporan-keuangan',
-            'harga',
-            'clearing',
+            'master-keuangan',
+            'kas',
             'regional-monitoring',
             // Super Admin
             'master-data',
@@ -112,10 +118,10 @@ class RoleSeeder extends Seeder
         // Menu: Verifikasi Pembayaran, Laporan, Harga, Clearing, Monitoring, Pengaturan
         $adminKeuangan = $this->template();
         $this->on($adminKeuangan, [
-            'verifikasi',          // Verifikasi Pembayaran
+            'payment',             // Verifikasi Pembayaran
             'laporan-keuangan',    // Laporan
-            'harga',               // Harga
-            'clearing',            // Clearing
+            'master-keuangan',     // Harga
+            'kas',                 // Clearing
             'regional-monitoring', // Monitoring Regional
             'pengaturan',
         ], $full);
