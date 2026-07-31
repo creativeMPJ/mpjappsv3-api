@@ -14,6 +14,7 @@ use App\Models\SystemSetting;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class EventController extends Controller
 {
@@ -189,6 +190,89 @@ class EventController extends Controller
         ]));
 
         return response()->json($event);
+    }
+
+    /**
+     * Catatan: ada dua kosakata status event di codebase ini. EventController
+     * memakai huruf kecil ('upcoming' pada store dan regionalStore), sedangkan
+     * ApiEventCompatController memakai huruf besar lewat konstanta
+     * EVENT_STATUSES. Keduanya sengaja tidak disatukan di sini agar tidak
+     * mengubah perilaku endpoint compat yang sudah dipakai; yang dipakai di
+     * bawah adalah kosakata milik controller ini.
+     */
+    private const STATUSES = ['upcoming', 'ongoing', 'completed', 'cancelled'];
+
+    public function update(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'name'        => 'sometimes|required|string',
+            'description' => 'nullable|string',
+            'date'        => 'sometimes|required|date',
+            'location'    => 'nullable|string',
+            'status'      => ['sometimes', 'required', Rule::in(self::STATUSES)],
+            'member_price' => 'nullable|integer|min:0',
+            'public_price' => 'nullable|integer|min:0',
+            'certificate_enabled' => 'nullable|boolean',
+        ]);
+
+        $event = Event::find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event tidak ditemukan'], 404);
+        }
+
+        // Field yang tidak dikirim tidak diubah. Field yang dikirim bernilai null
+        // tetap diterapkan supaya deskripsi atau lokasi bisa dikosongkan.
+        $event->update($data);
+
+        return response()->json(['success' => true, 'event' => $event->fresh()]);
+    }
+
+    public function changeStatus(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'status' => ['required', Rule::in(self::STATUSES)],
+        ]);
+
+        $event = Event::find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event tidak ditemukan'], 404);
+        }
+
+        $event->update(['status' => $data['status']]);
+
+        return response()->json(['success' => true, 'status' => $event->status]);
+    }
+
+    public function destroy(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $event = Event::find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event tidak ditemukan'], 404);
+        }
+
+        // Menghapus event yang sudah punya peserta atau laporan akan melanggar
+        // foreign key atau meninggalkan data yatim. Lebih baik ditolak dengan
+        // alasan yang jelas daripada dihapus paksa.
+        $registrationCount = EventRegistration::where('event_id', $event->id)->count();
+        $reportCount       = EventReport::where('event_id', $event->id)->count();
+
+        if ($registrationCount > 0 || $reportCount > 0) {
+            return response()->json([
+                'message' => "Event tidak bisa dihapus karena sudah punya {$registrationCount} pendaftar dan {$reportCount} laporan. Ubah statusnya menjadi cancelled bila ingin menonaktifkan.",
+                'registrations' => $registrationCount,
+                'reports'       => $reportCount,
+            ], 409);
+        }
+
+        $event->delete();
+
+        return response()->json(['success' => true]);
     }
 
     public function reports(Request $request, string $id)

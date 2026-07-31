@@ -262,6 +262,11 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/{id}/check-ticket',      [EventController::class, 'checkTicket']);
         Route::post('/{id}/check-in',          [EventController::class, 'checkIn']);
 
+        // Kelola event nasional (Admin Pusat)
+        Route::put('/{id}',                    [EventController::class, 'update']);
+        Route::patch('/{id}/status',           [EventController::class, 'changeStatus']);
+        Route::delete('/{id}',                 [EventController::class, 'destroy']);
+
         // Harus terakhir: pola {id} satu segmen akan menelan /regional dan /my-*.
         Route::get('/{id}',                    [EventController::class, 'show']);
     });
