@@ -14,6 +14,7 @@ use App\Models\PricingPackage;
 use App\Models\PesantrenProfile;
 use App\Models\RegionalReport;
 use App\Models\Region;
+use App\Support\AccessControl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -21,13 +22,22 @@ use Illuminate\Support\Str;
 
 class RegionalController extends Controller
 {
+    private const REGIONAL_ACCESS_KEYS = [
+        'validasi-pendaftar',
+        'data-master',
+        'laporan',
+        'late-payment',
+        'download-center',
+        'admin-regional-manajemen-event',
+        'hub',
+    ];
+
     private function assertRegional()
     {
         $user    = auth()->user();
-        $role    = $user->activeRole();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$role || $role->nama !== 'Admin Regional' || !$profile?->region_id) {
+        if (!$user || !AccessControl::hasAny($user, self::REGIONAL_ACCESS_KEYS) || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
 
@@ -125,6 +135,7 @@ class RegionalController extends Controller
         $this->assertRegional();
 
         $packages = PricingPackage::where('is_active', true)
+            ->where('category', 'registration')
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -150,10 +161,27 @@ class RegionalController extends Controller
             return response()->json(['message' => 'Claim tidak ditemukan'], 404);
         }
 
-        DB::transaction(function () use ($claim) {
+        $pricingPackage = null;
+        if ($claim->jenis_pengajuan === 'pesantren_baru') {
+            $data = $request->validate([
+                'pricingPackageId' => 'required|uuid',
+            ]);
+
+            $pricingPackage = PricingPackage::where('id', $data['pricingPackageId'])
+                ->where('category', 'registration')
+                ->where('is_active', true)
+                ->first();
+
+            if (!$pricingPackage) {
+                return response()->json(['message' => 'Paket harga pendaftaran tidak valid atau tidak aktif.'], 422);
+            }
+        }
+
+        DB::transaction(function () use ($claim, $pricingPackage) {
             $claim->update([
                 'status'               => 'regional_approved',
                 'regional_approved_at' => now(),
+                'pricing_package_id'   => $pricingPackage?->id,
                 'notes'                => null,
             ]);
 

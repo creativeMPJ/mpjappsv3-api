@@ -7,6 +7,7 @@ use App\Models\OtpVerification;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
 use App\Models\User;
+use App\Support\AccessControl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -15,10 +16,9 @@ class ClaimController extends Controller
     public function pendingCount(Request $request)
     {
         $user    = auth()->user();
-        $role    = $user->activeRole();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$role || $role->nama !== 'Admin Regional' || !$profile?->region_id) {
+        if (!$user || !AccessControl::has($user, 'validasi-pendaftar') || !$profile?->region_id) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
@@ -104,14 +104,19 @@ class ClaimController extends Controller
 
         $masked = '***' . substr(preg_replace('/\D/', '', $phone), -4);
 
-        return response()->json([
+        $response = [
             'success'      => true,
             'message'      => 'Kode OTP telah dikirim ke nomor WhatsApp yang terdaftar',
             'otp_id'       => $otp->id,
             'expires_at'   => $expiresAt->toISOString(),
             'phone_masked' => $masked,
-            'debug_otp'    => $otpCode,
-        ]);
+        ];
+
+        if (!app()->environment('production')) {
+            $response['development_otp'] = $otpCode;
+        }
+
+        return response()->json($response);
     }
 
     public function verifyOtp(Request $request)

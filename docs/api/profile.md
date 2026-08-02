@@ -52,7 +52,7 @@ Mendapatkan semua data profil pesantren milik user yang login. Digunakan saat ko
 
 ## PUT /api/profile/pesantren
 
-Simpan/update data profil pesantren dan naikkan level jika syarat terpenuhi.
+Simpan/update data profil pesantren. Step 1 dapat menaikkan level ke Silver secara langsung; Gold dan Platinum diproses melalui invoice paket `upgrade`.
 
 **Auth:** Diperlukan
 **Content-Type:** `application/json`
@@ -81,25 +81,82 @@ Simpan/update data profil pesantren dan naikkan level jika syarat terpenuhi.
 | `jenjangPendidikan` | string | 3 | Jenjang pendidikan |
 | `programUnggulan` | string | 3 | Program unggulan |
 
-**Logika naik level:**
+**Logika level:**
 
 | Step | Syarat | Level |
 |---|---|---|
 | 1 | `namaPesantren` + `namaPengasuh` + `alamatSingkat` terisi | `silver` |
-| 2 | Step 1 selesai + minimal 1 sosmed + `latitude` & `longitude` terisi | `gold` |
-| 3 | Step 2 selesai + `visiMisi` + `sejarahSingkat` terisi | `platinum` |
+| 2 | Step 1 selesai + minimal 1 sosmed + `latitude` & `longitude` terisi | Data tersimpan, lanjut request invoice upgrade Gold |
+| 3 | Step 2 selesai + `visiMisi` + `sejarahSingkat` terisi | Data tersimpan, lanjut request invoice upgrade Platinum |
 
 **Response 200:**
 ```json
 {
   "success": true,
-  "profileLevel": "silver | gold | platinum"
+  "profileLevel": "basic | silver | gold | platinum"
 }
 ```
 
 **Error Responses:**
 - `404` — `{ "message": "Profile tidak ditemukan" }`
 - `422` — Validasi gagal
+
+---
+
+## POST /api/profile/upgrade/request
+
+Membuat invoice upgrade profil memakai paket Finance aktif kategori `upgrade`.
+
+**Auth:** Diperlukan
+**Content-Type:** `application/json`
+
+| Field | Type | Required | Keterangan |
+|---|---|---|---|
+| `targetLevel` | string | Ya | `gold` atau `platinum` |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": "uuid",
+    "invoiceNumber": "INV-UPG-20260801-1234",
+    "status": "pending",
+    "totalAmount": 200999,
+    "paymentType": "profile_upgrade",
+    "pricingPackageName": "Upgrade Gold",
+    "pricingPackageCategory": "upgrade"
+  }
+}
+```
+
+> Setelah pembayaran diverifikasi Finance, `profile_level` diperbarui ke `targetLevel`.
+
+---
+
+## POST /api/profile/renewal/request
+
+Membuat invoice perpanjangan profil memakai paket Finance aktif kategori `renewal`.
+
+**Auth:** Diperlukan
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": "uuid",
+    "invoiceNumber": "INV-REN-20260801-1234",
+    "status": "pending",
+    "totalAmount": 100999,
+    "paymentType": "profile_renewal",
+    "pricingPackageName": "Perpanjangan Tahunan",
+    "pricingPackageCategory": "renewal"
+  }
+}
+```
+
+> Setelah pembayaran diverifikasi Finance, status renewal dicatat pada meta pembayaran.
 
 ---
 

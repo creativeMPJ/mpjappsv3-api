@@ -23,30 +23,6 @@
             "header": [],
             "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
           }
-        },
-        {
-          "name": "Artisan Runner",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"command\": \"config:clear\"\n}"
-            },
-            "url": { "raw": "{{base_url}}/artisan", "host": ["{{base_url}}"], "path": ["artisan"] }
-          }
-        },
-        {
-          "name": "Dev Reset",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"password\": \"sulip\"\n}"
-            },
-            "url": { "raw": "{{base_url}}/dev/reset", "host": ["{{base_url}}"], "path": ["dev", "reset"] }
-          }
         }
       ]
     },

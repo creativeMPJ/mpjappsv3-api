@@ -86,12 +86,11 @@ Mengirim kode OTP ke nomor WhatsApp pengelola pesantren untuk verifikasi klaim.
   "message": "Kode OTP telah dikirim ke nomor WhatsApp yang terdaftar",
   "otp_id": "uuid",
   "expires_at": "2026-03-09T10:15:00.000Z",
-  "phone_masked": "***7890",
-  "debug_otp": "123456"
+  "phone_masked": "***7890"
 }
 ```
 
-> **Catatan:** Field `debug_otp` hanya untuk keperluan development.
+> **Catatan:** Field `debug_otp` tidak dikirim pada environment production.
 
 **Error Responses:**
 - `400` — `{ "message": "Nomor WhatsApp tidak tersedia untuk akun ini" }`

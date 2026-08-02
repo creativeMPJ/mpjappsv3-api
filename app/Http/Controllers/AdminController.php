@@ -19,6 +19,8 @@ use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\UserRole;
+use App\Support\AccessControl;
+use App\Support\AuditLogger;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,11 +29,31 @@ use Illuminate\Support\Str;
 
 class AdminController extends Controller
 {
+    private const PUSAT_ACCESS_KEYS = [
+        'administrasi',
+        'master-data',
+        'master-regional',
+        'admin-pusat-manajemen-event',
+        'militansi',
+        'mpj-hub',
+        'user-management',
+        'hierarchy',
+        'hak-akses',
+    ];
+
+    private const FINANCE_ACCESS_KEYS = [
+        'verifikasi',
+        'laporan-keuangan',
+        'harga',
+        'clearing',
+        'regional-monitoring',
+        'finance',
+    ];
+
     private function assertPusat()
     {
         $user = auth()->user();
-        $role = $user->activeRole();
-        if (!$role || $role->nama !== 'Admin Pusat') {
+        if (!$user || !AccessControl::hasAny($user, self::PUSAT_ACCESS_KEYS)) {
             abort(403, 'Forbidden');
         }
         return PesantrenProfile::where('user_id', $user->id)->first();
@@ -40,8 +62,16 @@ class AdminController extends Controller
     private function assertPusatOrFinance()
     {
         $user = auth()->user();
-        $role = $user->activeRole();
-        if (!$role || !in_array($role->nama, ['Admin Pusat', 'Admin Keuangan'])) {
+        if (!$user || !AccessControl::hasAny($user, array_merge(self::PUSAT_ACCESS_KEYS, self::FINANCE_ACCESS_KEYS))) {
+            abort(403, 'Forbidden');
+        }
+        return PesantrenProfile::where('user_id', $user->id)->first();
+    }
+
+    private function assertFinance()
+    {
+        $user = auth()->user();
+        if (!$user || !AccessControl::hasAny($user, self::FINANCE_ACCESS_KEYS)) {
             abort(403, 'Forbidden');
         }
         return PesantrenProfile::where('user_id', $user->id)->first();
@@ -191,6 +221,26 @@ class AdminController extends Controller
             ->unique('user_id')
             ->keyBy('user_id');
 
+        $profilesByRegion = PesantrenProfile::where('status_account', 'active')
+            ->select('region_id', DB::raw('COUNT(*) as total_pesantren'))
+            ->whereNotNull('region_id')
+            ->groupBy('region_id')
+            ->pluck('total_pesantren', 'region_id');
+
+        $crewsByRegion = Crew::where('crews.status', 'active')
+            ->join('pesantren_profiles', 'pesantren_profiles.id', '=', 'crews.profile_id')
+            ->whereNotNull('pesantren_profiles.region_id')
+            ->groupBy('pesantren_profiles.region_id')
+            ->select('pesantren_profiles.region_id', DB::raw('COUNT(*) as total_anggota'))
+            ->pluck('total_anggota', 'pesantren_profiles.region_id');
+
+        $regionMap = Region::orderBy('name')->get(['id', 'name'])->map(fn($region) => [
+            'id' => $region->id,
+            'name' => $region->name,
+            'total_pesantren' => (int) ($profilesByRegion[$region->id] ?? 0),
+            'total_anggota' => (int) ($crewsByRegion[$region->id] ?? 0),
+        ])->filter(fn($region) => $region['total_pesantren'] > 0 || $region['total_anggota'] > 0)->values();
+
         return response()->json([
             'stats' => [
                 'totalPesantren'  => $totalPesantren,
@@ -200,6 +250,7 @@ class AdminController extends Controller
                 'totalIncome'     => (int) $verifiedPayments,
             ],
             'levelStats'   => $levelStats,
+            'regionMap'    => $regionMap,
             'recentUsers'  => $recentProfiles->map(fn($p) => [
                 'id'             => $p->id,
                 'nama_pesantren' => $p->nama_pesantren,
@@ -741,6 +792,7 @@ class AdminController extends Controller
     public function addPusatAssistant(Request $request)
     {
         $this->assertPusat();
+        $actor = auth()->user();
 
         $data = $request->validate(['crewId' => 'required|uuid']);
         $crew = Crew::find($data['crewId']);
@@ -750,6 +802,15 @@ class AdminController extends Controller
         if (!$profile) return response()->json(['message' => 'Profil tidak ditemukan'], 404);
 
         $this->upsertUserRole($profile->user_id, 'admin_pusat');
+        AuditLogger::record(
+            $actor,
+            'admin_added',
+            'admin',
+            $profile->user_id,
+            $crew->nama,
+            "Kru {$crew->nama} ditunjuk sebagai Asisten Pusat.",
+            ['crew_id' => $crew->id, 'profile_id' => $profile->id]
+        );
 
         return response()->json(['success' => true]);
     }
@@ -757,6 +818,7 @@ class AdminController extends Controller
     public function removePusatAssistant(Request $request, string $crewId)
     {
         $this->assertPusat();
+        $actor = auth()->user();
 
         $crew = Crew::find($crewId);
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
@@ -765,6 +827,15 @@ class AdminController extends Controller
         if (!$profile) return response()->json(['message' => 'Profil tidak ditemukan'], 404);
 
         $this->upsertUserRole($profile->user_id, 'user');
+        AuditLogger::record(
+            $actor,
+            'admin_removed',
+            'admin',
+            $profile->user_id,
+            $crew->nama,
+            "Akses Asisten Pusat {$crew->nama} dicabut.",
+            ['crew_id' => $crew->id, 'profile_id' => $profile->id]
+        );
 
         return response()->json(['success' => true]);
     }
@@ -822,6 +893,49 @@ class AdminController extends Controller
         }
 
         $region = Region::create(['id' => Str::uuid(), 'name' => $data['name'], 'code' => $data['code']]);
+        AuditLogger::record(
+            auth()->user(),
+            'region_created',
+            'region',
+            $region->id,
+            $region->name,
+            'Regional dibuat.',
+            ['code' => $region->code]
+        );
+
+        return response()->json(['region' => ['id' => $region->id, 'name' => $region->name, 'code' => $region->code]]);
+    }
+
+    public function updateRegion(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $region = Region::find($id);
+        if (!$region) {
+            return response()->json(['message' => 'Regional tidak ditemukan'], 404);
+        }
+
+        $data = $request->validate([
+            'name' => 'required|string',
+            'code' => 'required|string|regex:/^\d{2}$/',
+        ]);
+
+        if (Region::where('code', $data['code'])->where('id', '!=', $id)->exists()) {
+            return response()->json(['message' => 'Kode regional sudah digunakan'], 409);
+        }
+
+        $before = $region->only(['name', 'code']);
+        $region->update(['name' => $data['name'], 'code' => $data['code']]);
+
+        AuditLogger::record(
+            auth()->user(),
+            'region_updated',
+            'region',
+            $region->id,
+            $region->name,
+            'Regional diperbarui.',
+            ['before' => $before, 'after' => $region->only(['name', 'code'])]
+        );
 
         return response()->json(['region' => ['id' => $region->id, 'name' => $region->name, 'code' => $region->code]]);
     }
@@ -830,9 +944,97 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        Region::where('id', $id)->delete();
+        $region = Region::find($id);
+        if (!$region) {
+            return response()->json(['message' => 'Regional tidak ditemukan'], 404);
+        }
+
+        $regionName = $region->name;
+        $regionCode = $region->code;
+        $region->delete();
+
+        AuditLogger::record(
+            auth()->user(),
+            'region_deleted',
+            'region',
+            $id,
+            $regionName,
+            'Regional dihapus.',
+            ['code' => $regionCode]
+        );
 
         return response()->json(['success' => true]);
+    }
+
+    public function mergeRegions(Request $request)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'sourceId' => 'required|uuid',
+            'targetId' => 'required|uuid|different:sourceId',
+            'newName' => 'required|string',
+            'newCode' => 'required|string|regex:/^\d{2}$/',
+        ]);
+
+        $source = Region::find($data['sourceId']);
+        $target = Region::find($data['targetId']);
+
+        if (!$source || !$target) {
+            return response()->json(['message' => 'Regional tidak ditemukan'], 404);
+        }
+
+        if (Region::where('code', $data['newCode'])->whereNotIn('id', [$source->id, $target->id])->exists()) {
+            return response()->json(['message' => 'Kode regional sudah digunakan'], 409);
+        }
+
+        $sourceSnapshot = $source->only(['id', 'name', 'code']);
+        $targetBefore = $target->only(['id', 'name', 'code']);
+
+        DB::transaction(function () use ($source, $target, $data) {
+            $sourceRegencyIds = DB::table('region_regencies')
+                ->where('region_id', $source->id)
+                ->pluck('regency_id');
+
+            if ($sourceRegencyIds->isNotEmpty()) {
+                DB::table('region_regencies')
+                    ->where('region_id', $target->id)
+                    ->whereIn('regency_id', $sourceRegencyIds)
+                    ->delete();
+
+                DB::table('region_regencies')
+                    ->where('region_id', $source->id)
+                    ->update(['region_id' => $target->id]);
+            }
+
+            PesantrenProfile::where('region_id', $source->id)->update(['region_id' => $target->id]);
+
+            $target->update([
+                'name' => $data['newName'],
+                'code' => $data['newCode'],
+            ]);
+
+            $source->delete();
+        });
+
+        AuditLogger::record(
+            auth()->user(),
+            'regions_merged',
+            'region',
+            $target->id,
+            $data['newName'],
+            'Regional digabung.',
+            [
+                'source' => $sourceSnapshot,
+                'target_before' => $targetBefore,
+                'target_after' => ['id' => $target->id, 'name' => $data['newName'], 'code' => $data['newCode']],
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'region' => ['id' => $target->id, 'name' => $data['newName'], 'code' => $data['newCode']],
+        ]);
     }
 
     public function addCity(Request $request)
@@ -864,6 +1066,16 @@ class AdminController extends Controller
             ['region_id' => $region->id]
         );
 
+        AuditLogger::record(
+            auth()->user(),
+            'regional_city_mapped',
+            'regency',
+            $regency->id,
+            $regency->name,
+            "Kota/kabupaten ditambahkan ke regional {$region->name}.",
+            ['region_id' => $region->id, 'region_name' => $region->name]
+        );
+
         return response()->json([
             'city' => [
                 'id' => $regency->id,
@@ -891,6 +1103,15 @@ class AdminController extends Controller
             return response()->json(['message' => 'Mapping kota tidak ditemukan'], 404);
         }
 
+        AuditLogger::record(
+            auth()->user(),
+            'regional_city_unmapped',
+            'regency',
+            $regency->id,
+            $regency->name,
+            'Kota/kabupaten dihapus dari mapping regional.'
+        );
+
         return response()->json(['success' => true]);
     }
 
@@ -917,6 +1138,16 @@ class AdminController extends Controller
             $this->upsertUserRole($profile->user_id, 'admin_regional');
         });
 
+        AuditLogger::record(
+            auth()->user(),
+            'regional_admin_assigned',
+            'user',
+            $profile->user_id,
+            $profile->nama_pesantren ?? $profile->nama_pengasuh ?? $profile->user_id,
+            "Admin regional ditugaskan ke {$region->name}.",
+            ['profile_id' => $profile->id, 'region_id' => $region->id, 'region_name' => $region->name]
+        );
+
         return response()->json(['success' => true, 'region' => ['id' => $region->id, 'name' => $region->name]]);
     }
 
@@ -924,26 +1155,61 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $users = PesantrenProfile::with(['region:id,name', 'user.userRoles.roleDetail'])
-            ->orderBy('created_at', 'desc')
-            ->get(['id', 'user_id', 'nama_pesantren', 'nama_pengasuh', 'status_account', 'status_payment', 'region_id']);
+        $perPage = min(max((int) $request->query('perPage', 25), 1), 100);
+        $search = trim((string) $request->query('search', ''));
+
+        $query = PesantrenProfile::with([
+            'region:id,name',
+            'user:id,email',
+            'user.userRoles' => fn($roleQuery) => $roleQuery
+                ->with('roleDetail:id,nama')
+                ->orderBy('created_at', 'desc')
+                ->select(['id', 'user_id', 'role_id', 'created_at']),
+        ])
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('nama_pesantren', 'like', "%{$search}%")
+                        ->orWhere('nama_pengasuh', 'like', "%{$search}%")
+                        ->orWhere('status_account', 'like', "%{$search}%")
+                        ->orWhere('status_payment', 'like', "%{$search}%")
+                        ->orWhereHas('region', fn($region) => $region->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('user', fn($user) => $user->where('email', 'like', "%{$search}%"))
+                        ->orWhereHas('user.userRoles.roleDetail', fn($role) => $role->where('nama', 'like', "%{$search}%"));
+                });
+            })
+            ->select(['id', 'user_id', 'nama_pesantren', 'nama_pengasuh', 'status_account', 'status_payment', 'region_id', 'created_at'])
+            ->orderBy('created_at', 'desc');
+
+        $users = $query
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $mappedUsers = $users->getCollection()->map(fn($u) => [
+            'id'              => $u->id,
+            'nama_pesantren'  => $u->nama_pesantren,
+            'nama_pengasuh'   => $u->nama_pengasuh,
+            'email'           => $u->user?->email,
+            'display_name'    => $u->nama_pesantren
+                ?? $u->nama_pengasuh
+                ?? $u->user?->email
+                ?? 'Belum diisi',
+            'role'            => $this->normalizeRoleName($u->user?->userRoles?->first()?->roleDetail?->nama),
+            'status_account'  => $u->status_account,
+            'status_payment'  => $u->status_payment,
+            'region_id'       => $u->region_id,
+            'region_name'     => $u->region?->name ?? '-',
+        ])->values();
 
         return response()->json([
-            'users' => $users->map(fn($u) => [
-                'id'              => $u->id,
-                'nama_pesantren'  => $u->nama_pesantren,
-                'nama_pengasuh'   => $u->nama_pengasuh,
-                'email'           => $u->user?->email,
-                'display_name'    => $u->nama_pesantren
-                    ?? $u->nama_pengasuh
-                    ?? $u->user?->email
-                    ?? 'Belum diisi',
-                'role'            => $u->user?->activeRole()?->nama,
-                'status_account'  => $u->status_account,
-                'status_payment'  => $u->status_payment,
-                'region_id'       => $u->region_id,
-                'region_name'     => $u->region?->name ?? '-',
-            ]),
+            'users' => $mappedUsers,
+            'pagination' => [
+                'current_page' => $users->currentPage(),
+                'per_page' => $users->perPage(),
+                'total' => $users->total(),
+                'last_page' => $users->lastPage(),
+                'from' => $users->firstItem(),
+                'to' => $users->lastItem(),
+            ],
         ]);
     }
 
@@ -1014,6 +1280,16 @@ class AdminController extends Controller
             }
         });
 
+        AuditLogger::record(
+            auth()->user(),
+            'price_settings_updated',
+            'system_setting',
+            null,
+            'Pengaturan harga dasar',
+            'Setting harga dasar dan slot diperbarui.',
+            $data
+        );
+
         return response()->json(['success' => true]);
     }
 
@@ -1021,16 +1297,17 @@ class AdminController extends Controller
     {
         $this->assertPusat();
 
-        $totalUsers    = PesantrenProfile::count();
-        $totalPesantren= PesantrenProfile::whereNotNull('nama_pesantren')->count();
-        $paidUsers     = PesantrenProfile::where('status_payment', 'paid')->count();
-        $revenue       = $paidUsers * 350000;
+        $totalUsers = User::count();
+        $totalPesantren = PesantrenProfile::whereNotNull('nama_pesantren')->count();
+        $paidUsers = PesantrenProfile::where('status_payment', 'paid')->count();
+        $totalRevenue = (int) Payment::where('status', 'verified')->sum('total_amount');
 
         return response()->json([
             'total_users'        => $totalUsers,
             'total_pesantren'    => $totalPesantren,
             'paid_users'         => $paidUsers,
-            'estimated_revenue'  => $revenue,
+            'total_revenue'      => $totalRevenue,
+            'estimated_revenue'  => $totalRevenue,
         ]);
     }
 
@@ -1361,27 +1638,33 @@ class AdminController extends Controller
 
     public function priceSettings(Request $request)
     {
-        $this->assertPusat();
+        $this->assertPusatOrFinance();
 
         return response()->json([
             'registrationPrice' => (int) SystemSetting::getValue('registration_base_price', 50000),
             'claimPrice'        => (int) SystemSetting::getValue('claim_base_price', 20000),
+            'freeSlotQuantity'  => (int) SystemSetting::getValue('free_slot_quantity', 3),
+            'addonSlotPrice'    => (int) SystemSetting::getValue('addon_slot_price', 0),
         ]);
     }
 
     public function updatePriceSettings(Request $request)
     {
-        $this->assertPusat();
+        $this->assertFinance();
 
         $data = $request->validate([
             'registrationPrice' => 'required|integer|min:1',
             'claimPrice'        => 'required|integer|min:1',
+            'freeSlotQuantity'  => 'required|integer|min:1|max:20',
+            'addonSlotPrice'    => 'required|integer|min:0',
         ]);
 
         DB::transaction(function () use ($data) {
             foreach ([
                 'registration_base_price' => [$data['registrationPrice'], 'Harga dasar pendaftaran pesantren baru'],
                 'claim_base_price'        => [$data['claimPrice'], 'Harga dasar klaim akun lama'],
+                'free_slot_quantity'      => [$data['freeSlotQuantity'], 'Jumlah slot gratis per pesantren'],
+                'addon_slot_price'        => [$data['addonSlotPrice'], 'Harga add-on per slot kru'],
             ] as $key => [$value, $desc]) {
                 $existing = \App\Models\SystemSetting::where('key', $key)->first();
                 if ($existing) {
@@ -1458,6 +1741,7 @@ class AdminController extends Controller
         $payments = Payment::with([
             'claim:id,pesantren_name,nama_pengelola,jenis_pengajuan,region_id,mpj_id_number',
             'user:id,no_wa_pendaftar,status_account,status_payment,nip,nama_pesantren,nama_pengasuh,region_id',
+            'pricingPackage:id,name,category',
             'paymentLogs:id,payment_id',
         ])
             ->when($request->filled('payment_type'), fn($query) => $query->where('payment_type', $request->input('payment_type')))
@@ -1485,6 +1769,8 @@ class AdminController extends Controller
                 'verified_at'         => $p->verified_at,
                 'submitted_at'        => $p->submitted_at,
                 'activation_state'    => $this->determineActivationState($p->user, $p, $p->claim),
+                'pricing_package_name' => $p->pricingPackage?->name,
+                'pricing_package_category' => $p->pricingPackage?->category,
                 'pesantren_claims'    => [
                     'pesantren_name'  => $p->claim?->pesantren_name ?? $p->user?->nama_pesantren,
                     'nama_pengelola'  => $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh,
@@ -1539,6 +1825,16 @@ class AdminController extends Controller
             $data['reason']
         );
 
+        AuditLogger::record(
+            $actor,
+            'payment_rejected',
+            'payment',
+            $payment->id,
+            $payment->invoice_number,
+            'Pembayaran ditolak.',
+            ['reason' => $data['reason'], 'payment_type' => $payment->payment_type]
+        );
+
         return response()->json(['success' => true]);
     }
 
@@ -1549,9 +1845,21 @@ class AdminController extends Controller
 
         $payment = Payment::with(['claim', 'user:id,no_wa_pendaftar,nama_pesantren,status_account,status_payment,nip,region_id'])->find($id);
         if (!$payment) return response()->json(['message' => 'Payment not found'], 404);
+        $recordPaymentApproval = function (Payment $payment, ?array $meta = null) use ($user): void {
+            AuditLogger::record(
+                $user,
+                'payment_approved',
+                'payment',
+                $payment->id,
+                $payment->invoice_number,
+                'Pembayaran diverifikasi.',
+                array_merge(['payment_type' => $payment->payment_type], $meta ?? [])
+            );
+        };
 
         if (($payment->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION) === FinanceActivationService::TYPE_CREW_ACTIVATION) {
             $crew = FinanceActivationService::approveCrewActivation($payment, $user);
+            $recordPaymentApproval($payment->fresh(), ['niam' => $crew->niam]);
 
             return response()->json([
                 'success' => true,
@@ -1584,11 +1892,116 @@ class AdminController extends Controller
                 FinanceActivationService::STATUS_VERIFIED,
                 'Pembayaran registrasi event diverifikasi.'
             );
+            $recordPaymentApproval($payment->fresh(), ['event_registration_id' => $payment->reference_id]);
 
             return response()->json([
                 'success' => true,
                 'paymentType' => FinanceActivationService::TYPE_EVENT_REGISTRATION,
                 'activationState' => 'paid',
+            ]);
+        }
+
+        if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_PROFILE_UPGRADE) {
+            $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+            $targetLevel = $payment->meta['target_level'] ?? null;
+
+            if (!in_array($targetLevel, ['gold', 'platinum'], true)) {
+                return response()->json(['message' => 'Target level upgrade tidak valid'], 422);
+            }
+
+            $payment->update([
+                'status' => FinanceActivationService::STATUS_VERIFIED,
+                'verified_by' => $user->id,
+                'verified_at' => now(),
+                'rejection_reason' => null,
+            ]);
+
+            PesantrenProfile::where('id', $payment->user_id)->update([
+                'profile_level' => $targetLevel,
+            ]);
+
+            FinanceActivationService::logPaymentStatusChange(
+                $payment->fresh(),
+                $user->id,
+                'approved',
+                $fromStatus,
+                FinanceActivationService::STATUS_VERIFIED,
+                'Pembayaran upgrade profil diverifikasi.',
+                ['target_level' => $targetLevel]
+            );
+            $recordPaymentApproval($payment->fresh(), ['target_level' => $targetLevel]);
+
+            return response()->json([
+                'success' => true,
+                'paymentType' => FinanceActivationService::TYPE_PROFILE_UPGRADE,
+                'activationState' => 'profile_upgraded',
+                'profileLevel' => $targetLevel,
+            ]);
+        }
+
+        if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_PROFILE_RENEWAL) {
+            $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+            $payment->update([
+                'status' => FinanceActivationService::STATUS_VERIFIED,
+                'verified_by' => $user->id,
+                'verified_at' => now(),
+                'rejection_reason' => null,
+                'meta' => array_merge($payment->meta ?? [], [
+                    'renewed_at' => now()->toISOString(),
+                ]),
+            ]);
+
+            FinanceActivationService::logPaymentStatusChange(
+                $payment->fresh(),
+                $user->id,
+                'approved',
+                $fromStatus,
+                FinanceActivationService::STATUS_VERIFIED,
+                'Pembayaran perpanjangan profil diverifikasi.'
+            );
+            $recordPaymentApproval($payment->fresh());
+
+            return response()->json([
+                'success' => true,
+                'paymentType' => FinanceActivationService::TYPE_PROFILE_RENEWAL,
+                'activationState' => 'profile_renewed',
+            ]);
+        }
+
+        if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_SLOT_ADDON) {
+            $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+            $quantity = max(1, (int) ($payment->meta['slot_quantity'] ?? 1));
+
+            $payment->update([
+                'status' => FinanceActivationService::STATUS_VERIFIED,
+                'verified_by' => $user->id,
+                'verified_at' => now(),
+                'rejection_reason' => null,
+                'meta' => array_merge($payment->meta ?? [], [
+                    'approved_slot_quantity' => $quantity,
+                    'slot_approved_at' => now()->toISOString(),
+                ]),
+            ]);
+
+            PesantrenProfile::where('id', $payment->user_id)->increment('paid_slot_quantity', $quantity);
+
+            FinanceActivationService::logPaymentStatusChange(
+                $payment->fresh(),
+                $user->id,
+                'approved',
+                $fromStatus,
+                FinanceActivationService::STATUS_VERIFIED,
+                'Pembayaran slot tambahan diverifikasi.',
+                ['slot_quantity' => $quantity]
+            );
+            $recordPaymentApproval($payment->fresh(), ['slot_quantity' => $quantity]);
+
+            return response()->json([
+                'success' => true,
+                'paymentType' => FinanceActivationService::TYPE_SLOT_ADDON,
+                'activationState' => 'slot_added',
+                'slotQuantity' => $quantity,
             ]);
         }
 
@@ -1632,6 +2045,8 @@ class AdminController extends Controller
 
             return $generatedNip;
         });
+
+        $recordPaymentApproval($payment->fresh(), ['nip' => $nip]);
 
         return response()->json([
             'success'       => true,
@@ -1780,11 +2195,11 @@ class AdminController extends Controller
 
     public function createPricingPackage(Request $request)
     {
-        $this->assertPusatOrFinance();
+        $this->assertFinance();
 
         $data = $request->validate([
             'name'        => 'required|string',
-            'category'    => 'required|in:registration,renewal,upgrade',
+            'category'    => 'required|in:registration,renewal,upgrade,crew_addon',
             'hargaPaket'  => 'required|integer|min:1',
             'hargaDiskon' => 'nullable|integer|min:1',
             'isActive'    => 'nullable|boolean',
@@ -1799,16 +2214,26 @@ class AdminController extends Controller
             'is_active'    => $data['isActive'] ?? true,
         ]);
 
+        AuditLogger::record(
+            auth()->user(),
+            'pricing_package_created',
+            'pricing_package',
+            $pkg->id,
+            $pkg->name,
+            'Paket harga dibuat.',
+            $pkg->only(['category', 'harga_paket', 'harga_diskon', 'is_active'])
+        );
+
         return response()->json(['success' => true, 'id' => $pkg->id]);
     }
 
     public function updatePricingPackage(Request $request, string $id)
     {
-        $this->assertPusatOrFinance();
+        $this->assertFinance();
 
         $data = $request->validate([
             'name'        => 'nullable|string',
-            'category'    => 'nullable|in:registration,renewal,upgrade',
+            'category'    => 'nullable|in:registration,renewal,upgrade,crew_addon',
             'hargaPaket'  => 'nullable|integer|min:1',
             'hargaDiskon' => 'nullable|integer|min:1',
             'isActive'    => 'nullable|boolean',
@@ -1825,19 +2250,40 @@ class AdminController extends Controller
             'is_active'    => $data['isActive'] ?? null,
         ], fn($v) => $v !== null));
 
+        AuditLogger::record(
+            auth()->user(),
+            'pricing_package_updated',
+            'pricing_package',
+            $pkg->id,
+            $pkg->name,
+            'Paket harga diperbarui.',
+            $data
+        );
+
         return response()->json(['success' => true]);
     }
 
     public function togglePricingPackage(Request $request, string $id)
     {
-        $this->assertPusatOrFinance();
+        $this->assertFinance();
 
         $pkg = PricingPackage::find($id);
         if (!$pkg) return response()->json(['message' => 'Paket tidak ditemukan'], 404);
 
-        $pkg->update(['is_active' => !$pkg->is_active]);
+        $nextActive = !$pkg->is_active;
+        $pkg->update(['is_active' => $nextActive]);
 
-        return response()->json(['success' => true, 'is_active' => !$pkg->is_active]);
+        AuditLogger::record(
+            auth()->user(),
+            'pricing_package_toggled',
+            'pricing_package',
+            $pkg->id,
+            $pkg->name,
+            $nextActive ? 'Paket harga diaktifkan.' : 'Paket harga dinonaktifkan.',
+            ['is_active' => $nextActive]
+        );
+
+        return response()->json(['success' => true, 'is_active' => $nextActive]);
     }
 
     public function financeStats(Request $request)

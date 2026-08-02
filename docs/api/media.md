@@ -87,7 +87,8 @@ Menambah anggota kru baru untuk pesantren pengguna yang login.
     "id": "uuid",
     "nama": "Budi Santoso",
     "jabatan": "Koordinator",
-    "niam": "KR123456789002",
+    "niam": null,
+    "status": "pending",
     "xp_level": 0,
     "jabatan_code_id": "uuid",
     "jabatan_code": {
@@ -95,16 +96,56 @@ Menambah anggota kru baru untuk pesantren pengguna yang login.
       "name": "Koordinator",
       "code": "KR"
     }
+  },
+  "invoice": {
+    "id": "uuid",
+    "invoice_number": "INV-20260801-0001",
+    "status": "pending",
+    "total_amount": 350000,
+    "payment_type": "crew_activation"
   }
 }
 ```
 
 **Error Responses:**
-- `403` — `{ "message": "Slot gratis sudah penuh (3/3). Upgrade untuk menambah kru." }` — Maksimal 3 kru untuk akun basic
+- `403` — Slot kru penuh. Ajukan pembelian slot tambahan terlebih dahulu melalui `POST /api/media/slot-addons/request`.
 - `404` — `{ "message": "Profile tidak ditemukan" }`
+- `422` — `{ "message": "Institusi belum aktif penuh, kru belum bisa ditambahkan." }`
 
-> NIAM otomatis di-generate jika pesantren sudah memiliki NIP dan `jabatanCodeId` diberikan.
+> Kru baru dibuat dengan status `pending`. NIAM diterbitkan backend setelah invoice aktivasi kru terverifikasi.
 > Format NIAM: `{kodeJabatan}{NIP}{urutan2digit}` — contoh: `KR123456789001`
+
+---
+
+## POST /api/media/slot-addons/request
+
+Membuat invoice pembelian slot kru tambahan memakai paket Finance aktif kategori `crew_addon`.
+
+**Auth:** Diperlukan
+**Content-Type:** `application/json`
+
+| Field | Type | Required | Keterangan |
+|---|---|---|---|
+| `quantity` | integer | Ya | Jumlah slot, 1 sampai 20 |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": "uuid",
+    "invoiceNumber": "INV-SLA-20260801-1234",
+    "status": "pending",
+    "totalAmount": 100999,
+    "paymentType": "slot_addon",
+    "quantity": 2,
+    "pricingPackageName": "Add-on Slot Kru",
+    "pricingPackageCategory": "crew_addon"
+  }
+}
+```
+
+> Setelah Finance menyetujui pembayaran, `paid_slot_quantity` profil bertambah sesuai `quantity`.
 
 ---
 
@@ -213,6 +254,53 @@ Mendapatkan pengaturan profil dasar pengguna.
 {
   "namaPengelola": "Ahmad",
   "email": "pengelola@pesantren.com",
-  "noWaPendaftar": "6281234567890"
+  "noWaPendaftar": "6281234567890",
+  "namaPanggilan": "Ahmad",
+  "alamatAsal": "Jombang",
+  "prinsipHidup": "Bermanfaat untuk umat",
+  "photoUrl": "/storage/crew-photos/uuid/123.jpg",
+  "cvUrl": "/storage/crew-cv/uuid/123.pdf"
+}
+```
+
+---
+
+## POST /api/media/profile-settings/photo
+
+Upload foto profil kru yang sedang login.
+
+**Auth:** Diperlukan
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Required | Keterangan |
+|---|---|---|---|
+| `file` | file | Ya | JPG, PNG, atau WEBP, maksimal 2MB |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "photoUrl": "/storage/crew-photos/uuid/123.jpg"
+}
+```
+
+---
+
+## POST /api/media/profile-settings/cv
+
+Upload CV atau portofolio kru yang sedang login.
+
+**Auth:** Diperlukan
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Required | Keterangan |
+|---|---|---|---|
+| `file` | file | Ya | PDF, DOC, DOCX, JPG, PNG, maksimal 2MB |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "cvUrl": "/storage/crew-cv/uuid/123.pdf"
 }
 ```

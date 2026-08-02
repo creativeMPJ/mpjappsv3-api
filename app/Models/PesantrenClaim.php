@@ -14,7 +14,7 @@ class PesantrenClaim extends Model
         'id', 'user_id', 'pesantren_directory_id', 'pesantren_name', 'jenis_pengajuan', 'status',
         'region_id', 'kecamatan', 'nama_pengelola', 'email_pengelola',
         'dokumen_bukti_url', 'mpj_id_number', 'notes', 'approved_by',
-        'approved_at', 'regional_approved_at', 'is_claimed',
+        'approved_at', 'regional_approved_at', 'pricing_package_id', 'is_claimed',
     ];
 
     public function profile()
@@ -30,6 +30,11 @@ class PesantrenClaim extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class, 'pesantren_claim_id');
+    }
+
+    public function pricingPackage()
+    {
+        return $this->belongsTo(PricingPackage::class, 'pricing_package_id');
     }
 
     public function otpVerifications()

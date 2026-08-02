@@ -97,7 +97,7 @@ Mendapatkan daftar klaim pesantren yang menunggu persetujuan wilayah.
 
 ## GET /api/regional/pricing-packages
 
-Mendapatkan daftar paket harga yang aktif.
+Mendapatkan daftar paket harga pendaftaran yang aktif untuk approval regional.
 
 **Auth:** Diperlukan | Role: `admin_regional`
 
@@ -118,7 +118,7 @@ Mendapatkan daftar paket harga yang aktif.
 }
 ```
 
-> Kategori: `registration` | `renewal` | `upgrade`
+> Endpoint regional hanya mengembalikan paket aktif dengan kategori `registration`.
 
 ---
 
@@ -139,7 +139,7 @@ Menyetujui klaim pesantren di tingkat wilayah.
 
 | Field | Type | Required | Keterangan |
 |---|---|---|---|
-| `pricingPackageId` | string (uuid) | Tidak | ID paket harga; jika kosong, paket `registration` default digunakan |
+| `pricingPackageId` | string (uuid) | Ya untuk `pesantren_baru` | ID paket harga aktif kategori `registration` |
 
 **Contoh Request:**
 ```json
@@ -155,12 +155,13 @@ Menyetujui klaim pesantren di tingkat wilayah.
 }
 ```
 
-> Untuk klaim `pesantren_baru`: status berubah ke `regional_approved` dan pembayaran dibuat otomatis.
+> Untuk klaim `pesantren_baru`: status berubah ke `regional_approved`, paket harga disimpan di klaim, dan invoice dibuat saat user membuka halaman pembayaran.
 > Untuk klaim `klaim`: status akun pesantren langsung diaktifkan.
 
 **Error Responses:**
 - `403` — Role bukan `admin_regional`
 - `404` — `{ "message": "Claim tidak ditemukan" }`
+- `422` — `{ "message": "Paket harga pendaftaran tidak valid atau tidak aktif." }`
 
 ---
 

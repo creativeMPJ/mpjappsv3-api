@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Crew;
+use App\Models\Payment;
 use App\Models\PesantrenProfile;
 use App\Models\User;
+use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 
 class ProfileController extends Controller
@@ -132,13 +134,7 @@ class ProfileController extends Controller
                 'longitude'     => $data['longitude']    ?? $profile->longitude,
             ]);
 
-            $hasSosmed   = $profile->instagram || $profile->youtube || $profile->tiktok || $profile->website;
-            $hasLocation = $profile->latitude && $profile->longitude;
-            $step1Done   = $profile->nama_pesantren && $profile->nama_pengasuh && $profile->alamat_singkat;
-
-            if ($step1Done && $hasSosmed && $hasLocation) {
-                $profile->update(['profile_level' => 'gold']);
-            }
+            // Upgrade Gold diproses melalui invoice paket Finance dan approval pembayaran.
 
         } elseif ($step === 3) {
             $data = $request->validate([
@@ -157,13 +153,7 @@ class ProfileController extends Controller
                 'program_unggulan'  => $data['programUnggulan']  ?? $profile->program_unggulan,
             ]);
 
-            $step2Done = ($profile->instagram || $profile->youtube || $profile->tiktok || $profile->website)
-                && $profile->latitude && $profile->longitude;
-            $step1Done = $profile->nama_pesantren && $profile->nama_pengasuh && $profile->alamat_singkat;
-
-            if ($step1Done && $step2Done && $profile->visi_misi && $profile->sejarah) {
-                $profile->update(['profile_level' => 'platinum']);
-            }
+            // Upgrade Platinum diproses melalui invoice paket Finance dan approval pembayaran.
         }
 
         $profile->refresh();
@@ -171,6 +161,128 @@ class ProfileController extends Controller
         return response()->json([
             'success'      => true,
             'profileLevel' => $profile->profile_level,
+        ]);
+    }
+
+    public function requestUpgrade(Request $request)
+    {
+        $user = auth()->user();
+        $profile = $this->resolveProfile($user);
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile tidak ditemukan'], 404);
+        }
+
+        if ($profile->status_account !== 'active' || $profile->status_payment !== 'paid' || !$profile->nip) {
+            return response()->json(['message' => 'Akun pesantren harus aktif sebelum mengajukan upgrade.'], 422);
+        }
+
+        $data = $request->validate([
+            'targetLevel' => 'required|in:gold,platinum',
+        ]);
+
+        $rank = ['basic' => 0, 'silver' => 1, 'gold' => 2, 'platinum' => 3];
+        $currentRank = $rank[$profile->profile_level ?? 'basic'] ?? 0;
+        $targetRank = $rank[$data['targetLevel']] ?? 0;
+
+        if ($targetRank <= $currentRank) {
+            return response()->json(['message' => 'Level tujuan harus lebih tinggi dari level saat ini.'], 422);
+        }
+
+        $existingUpgrade = Payment::where('payment_type', FinanceActivationService::TYPE_PROFILE_UPGRADE)
+            ->where('reference_type', FinanceActivationService::REFERENCE_PROFILE)
+            ->where('reference_id', $profile->id)
+            ->whereIn('status', [
+                FinanceActivationService::STATUS_PENDING,
+                FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                FinanceActivationService::STATUS_REJECTED,
+            ])
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (
+            $existingUpgrade &&
+            ($existingUpgrade->meta['target_level'] ?? null) !== $data['targetLevel']
+        ) {
+            if (FinanceActivationService::normalizePaymentStatus($existingUpgrade->status) === FinanceActivationService::STATUS_WAITING_VERIFICATION) {
+                return response()->json([
+                    'message' => 'Invoice upgrade sebelumnya sedang menunggu verifikasi finance.',
+                ], 422);
+            }
+
+            $existingUpgrade->update([
+                'status' => FinanceActivationService::STATUS_CANCELLED,
+                'meta' => array_merge($existingUpgrade->meta ?? [], [
+                    'cancelled_reason' => 'Diganti dengan pengajuan upgrade level baru.',
+                    'cancelled_at' => now()->toISOString(),
+                ]),
+            ]);
+        }
+
+        $payment = FinanceActivationService::ensureProfilePackageInvoice(
+            $profile,
+            'upgrade',
+            FinanceActivationService::TYPE_PROFILE_UPGRADE,
+            $user,
+            [
+                'target_level' => $data['targetLevel'],
+                'current_level' => $profile->profile_level,
+            ]
+        );
+
+        $payment->load('pricingPackage');
+
+        return response()->json([
+            'success' => true,
+            'payment' => [
+                'id' => $payment->id,
+                'invoiceNumber' => $payment->invoice_number,
+                'status' => FinanceActivationService::normalizePaymentStatus($payment->status),
+                'totalAmount' => $payment->total_amount,
+                'paymentType' => $payment->payment_type,
+                'pricingPackageName' => $payment->pricingPackage?->name,
+                'pricingPackageCategory' => $payment->pricingPackage?->category,
+            ],
+        ]);
+    }
+
+    public function requestRenewal(Request $request)
+    {
+        $user = auth()->user();
+        $profile = $this->resolveProfile($user);
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile tidak ditemukan'], 404);
+        }
+
+        if ($profile->status_account !== 'active' || $profile->status_payment !== 'paid' || !$profile->nip) {
+            return response()->json(['message' => 'Akun pesantren harus aktif sebelum mengajukan perpanjangan.'], 422);
+        }
+
+        $payment = FinanceActivationService::ensureProfilePackageInvoice(
+            $profile,
+            'renewal',
+            FinanceActivationService::TYPE_PROFILE_RENEWAL,
+            $user,
+            [
+                'renewal_requested_at' => now()->toISOString(),
+                'profile_level' => $profile->profile_level,
+            ]
+        );
+
+        $payment->load('pricingPackage');
+
+        return response()->json([
+            'success' => true,
+            'payment' => [
+                'id' => $payment->id,
+                'invoiceNumber' => $payment->invoice_number,
+                'status' => FinanceActivationService::normalizePaymentStatus($payment->status),
+                'totalAmount' => $payment->total_amount,
+                'paymentType' => $payment->payment_type,
+                'pricingPackageName' => $payment->pricingPackage?->name,
+                'pricingPackageCategory' => $payment->pricingPackage?->category,
+            ],
         ]);
     }
 

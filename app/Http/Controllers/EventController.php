@@ -6,17 +6,51 @@ use App\Models\Event;
 use App\Models\EventCheckin;
 use App\Models\EventRegistration;
 use App\Models\EventReport;
+use App\Models\EventSpeaker;
 use App\Models\Payment;
 use App\Models\Crew;
 use App\Models\PesantrenProfile;
 use App\Models\Region;
 use App\Models\SystemSetting;
+use App\Support\AccessControl;
+use App\Support\AuditLogger;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class EventController extends Controller
 {
+    private function mapSpeakers($speakers): array
+    {
+        return $speakers->map(fn($speaker) => [
+            'id' => $speaker->id,
+            'name' => $speaker->name,
+            'title' => $speaker->title,
+            'phone' => $speaker->phone,
+            'photo_url' => $speaker->photo_url,
+            'bio' => $speaker->bio,
+        ])->values()->all();
+    }
+
+    private function createSpeakers(Event $event, array $speakers = []): void
+    {
+        foreach ($speakers as $speaker) {
+            if (empty($speaker['name'])) {
+                continue;
+            }
+
+            EventSpeaker::create([
+                'id' => Str::uuid(),
+                'event_id' => $event->id,
+                'name' => $speaker['name'],
+                'title' => $speaker['title'] ?? null,
+                'phone' => $speaker['phone'] ?? null,
+                'photo_url' => $speaker['photo_url'] ?? null,
+                'bio' => $speaker['bio'] ?? null,
+            ]);
+        }
+    }
+
     private function mapRegistration(EventRegistration $registration): array
     {
         $payment = $registration->payment;
@@ -93,10 +127,9 @@ class EventController extends Controller
     private function assertRegional()
     {
         $user    = auth()->user();
-        $role    = $user->activeRole();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$role || $role->nama !== 'Admin Regional' || !$profile?->region_id) {
+        if (!$user || !AccessControl::has($user, 'admin-regional-manajemen-event') || !$profile?->region_id) {
             abort(403, 'Forbidden');
         }
         return $profile->region_id;
@@ -104,7 +137,7 @@ class EventController extends Controller
 
     public function index(Request $request)
     {
-        $events = Event::orderBy('date', 'desc')->get();
+        $events = Event::with('speakers')->orderBy('date', 'desc')->get();
         return response()->json($events->map(fn($event) => [
             'id' => $event->id,
             'name' => $event->name,
@@ -115,12 +148,13 @@ class EventController extends Controller
             'member_price' => $event->member_price,
             'public_price' => $event->public_price,
             'certificate_enabled' => (bool) $event->certificate_enabled,
+            'speakers' => $this->mapSpeakers($event->speakers),
         ]));
     }
 
     public function show(Request $request, string $id)
     {
-        $event = Event::find($id);
+        $event = Event::with('speakers')->find($id);
         if (!$event) return response()->json(['message' => 'Event not found'], 404);
 
         return response()->json([
@@ -134,7 +168,75 @@ class EventController extends Controller
                 'member_price' => $event->member_price,
                 'public_price' => $event->public_price,
                 'certificate_enabled' => (bool) $event->certificate_enabled,
+                'speakers' => $this->mapSpeakers($event->speakers),
             ],
+        ]);
+    }
+
+    public function addSpeaker(Request $request, string $id)
+    {
+        $event = Event::find($id);
+        if (!$event) return response()->json(['message' => 'Event not found'], 404);
+
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'title' => 'nullable|string|max:255',
+            'phone' => 'nullable|string|max:50',
+            'photo_url' => 'nullable|string|max:1000',
+            'bio' => 'nullable|string|max:2000',
+        ]);
+
+        $speaker = EventSpeaker::create([
+            'id' => Str::uuid(),
+            'event_id' => $event->id,
+            'name' => $data['name'],
+            'title' => $data['title'] ?? null,
+            'phone' => $data['phone'] ?? null,
+            'photo_url' => $data['photo_url'] ?? null,
+            'bio' => $data['bio'] ?? null,
+        ]);
+
+        AuditLogger::record(
+            auth()->user(),
+            'event_speaker_added',
+            'event_speaker',
+            $speaker->id,
+            $speaker->name,
+            "Narasumber ditambahkan ke event {$event->name}.",
+            ['event_id' => $event->id, 'event_name' => $event->name]
+        );
+
+        return response()->json([
+            'success' => true,
+            'speaker' => $this->mapSpeakers(collect([$speaker]))[0],
+            'event' => $event->fresh('speakers'),
+        ]);
+    }
+
+    public function deleteSpeaker(Request $request, string $id, string $speakerId)
+    {
+        $event = Event::find($id);
+        if (!$event) return response()->json(['message' => 'Event not found'], 404);
+
+        $speaker = EventSpeaker::where('event_id', $id)->where('id', $speakerId)->first();
+        if (!$speaker) return response()->json(['message' => 'Narasumber tidak ditemukan'], 404);
+
+        $speakerName = $speaker->name;
+        $speaker->delete();
+
+        AuditLogger::record(
+            auth()->user(),
+            'event_speaker_deleted',
+            'event_speaker',
+            $speakerId,
+            $speakerName,
+            "Narasumber dihapus dari event {$event->name}.",
+            ['event_id' => $event->id, 'event_name' => $event->name]
+        );
+
+        return response()->json([
+            'success' => true,
+            'event' => $event->fresh('speakers'),
         ]);
     }
 
@@ -149,7 +251,16 @@ class EventController extends Controller
             'member_price' => 'nullable|integer|min:0',
             'public_price' => 'nullable|integer|min:0',
             'certificate_enabled' => 'nullable|boolean',
+            'speakers' => 'nullable|array',
+            'speakers.*.name' => 'required_with:speakers|string|max:255',
+            'speakers.*.title' => 'nullable|string|max:255',
+            'speakers.*.phone' => 'nullable|string|max:50',
+            'speakers.*.photo_url' => 'nullable|string|max:1000',
+            'speakers.*.bio' => 'nullable|string|max:2000',
         ]);
+
+        $speakers = $data['speakers'] ?? [];
+        unset($data['speakers']);
 
         $event = Event::create(array_merge(['id' => Str::uuid()], $data, [
             'status' => $data['status'] ?? 'upcoming',
@@ -158,7 +269,19 @@ class EventController extends Controller
             'certificate_enabled' => $data['certificate_enabled'] ?? true,
         ]));
 
-        return response()->json($event);
+        $this->createSpeakers($event, $speakers);
+
+        AuditLogger::record(
+            auth()->user(),
+            'event_created',
+            'event',
+            $event->id,
+            $event->name,
+            'Event pusat dibuat.',
+            $event->only(['date', 'location', 'status', 'member_price', 'public_price', 'certificate_enabled'])
+        );
+
+        return response()->json($event->load('speakers'));
     }
 
     public function reports(Request $request, string $id)
@@ -218,7 +341,7 @@ class EventController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        $events = Event::orderBy('date', 'desc')->get();
+        $events = Event::with('speakers')->orderBy('date', 'desc')->get();
 
         $myReports = EventReport::where('region_id', $regionId)
             ->get(['id', 'event_id', 'participation_count', 'notes', 'submitted_at'])
@@ -239,6 +362,7 @@ class EventController extends Controller
                 'member_price' => $e->member_price,
                 'public_price' => $e->public_price,
                 'certificate_enabled' => (bool) $e->certificate_enabled,
+                'speakers' => $this->mapSpeakers($e->speakers),
                 'created_at'   => $e->created_at,
                 'report_count' => $reportCounts[$e->id] ?? 0,
                 'my_report'    => $myReports[$e->id] ?? null,
@@ -258,7 +382,16 @@ class EventController extends Controller
             'member_price' => 'nullable|integer|min:0',
             'public_price' => 'nullable|integer|min:0',
             'certificate_enabled' => 'nullable|boolean',
+            'speakers' => 'nullable|array',
+            'speakers.*.name' => 'required_with:speakers|string|max:255',
+            'speakers.*.title' => 'nullable|string|max:255',
+            'speakers.*.phone' => 'nullable|string|max:50',
+            'speakers.*.photo_url' => 'nullable|string|max:1000',
+            'speakers.*.bio' => 'nullable|string|max:2000',
         ]);
+
+        $speakers = $data['speakers'] ?? [];
+        unset($data['speakers']);
 
         $event = Event::create(array_merge(['id' => Str::uuid(), 'status' => 'upcoming'], $data, [
             'member_price' => $data['member_price'] ?? FinanceActivationService::getEventMemberPrice(),
@@ -266,7 +399,19 @@ class EventController extends Controller
             'certificate_enabled' => $data['certificate_enabled'] ?? true,
         ]));
 
-        return response()->json(['success' => true, 'event' => $event]);
+        $this->createSpeakers($event, $speakers);
+
+        AuditLogger::record(
+            auth()->user(),
+            'regional_event_created',
+            'event',
+            $event->id,
+            $event->name,
+            'Event regional dibuat.',
+            $event->only(['date', 'location', 'status', 'member_price', 'public_price', 'certificate_enabled'])
+        );
+
+        return response()->json(['success' => true, 'event' => $event->load('speakers')]);
     }
 
     public function regionalUpdate(Request $request, string $id)
@@ -287,7 +432,21 @@ class EventController extends Controller
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'ID tidak valid'], 400);
 
+        $before = $event->only(['name', 'description', 'date', 'location', 'status', 'member_price', 'public_price', 'certificate_enabled']);
         $event->update(array_filter($data, fn($v) => $v !== null));
+
+        AuditLogger::record(
+            auth()->user(),
+            'regional_event_updated',
+            'event',
+            $event->id,
+            $event->name,
+            'Event regional diperbarui.',
+            [
+                'before' => $before,
+                'after' => $event->only(['name', 'description', 'date', 'location', 'status', 'member_price', 'public_price', 'certificate_enabled']),
+            ]
+        );
 
         return response()->json(['success' => true, 'event' => $event]);
     }
@@ -309,6 +468,15 @@ class EventController extends Controller
                 'notes'               => $data['notes'] ?? null,
                 'submitted_at'        => now(),
             ]);
+            AuditLogger::record(
+                auth()->user(),
+                'regional_event_report_updated',
+                'event_report',
+                $existing->id,
+                $id,
+                'Laporan event regional diperbarui.',
+                ['event_id' => $id, 'region_id' => $regionId, 'participation_count' => $existing->participation_count]
+            );
             return response()->json(['success' => true, 'report' => $existing]);
         }
 
@@ -319,6 +487,16 @@ class EventController extends Controller
             'participation_count' => $data['participationCount'],
             'notes'               => $data['notes'] ?? null,
         ]);
+
+        AuditLogger::record(
+            auth()->user(),
+            'regional_event_report_submitted',
+            'event_report',
+            $report->id,
+            $id,
+            'Laporan event regional dikirim.',
+            ['event_id' => $id, 'region_id' => $regionId, 'participation_count' => $report->participation_count]
+        );
 
         return response()->json(['success' => true, 'report' => $report]);
     }

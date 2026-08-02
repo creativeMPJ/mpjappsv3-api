@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Crew;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenDirectory;
-use App\Models\Profile;
+use App\Models\PesantrenProfile;
 use App\Models\Regency;
 use App\Models\Region;
 use Illuminate\Http\Request;
@@ -48,7 +48,7 @@ class PublicController extends Controller
         $search   = trim($request->query('search', ''));
         $regionId = trim($request->query('regionId', ''));
 
-        $query = Profile::with('region:id,name,code')
+        $query = PesantrenProfile::with('region:id,name,code')
             ->where('status_account', 'active')
             ->whereNotNull('nip');
 
@@ -104,7 +104,7 @@ class PublicController extends Controller
     {
         $cleanNip = str_replace('.', '', $nip);
 
-        $profile = Profile::with('region:id,name')
+        $profile = PesantrenProfile::with('region:id,name')
             ->where('nip', $cleanNip)
             ->where('status_account', 'active')
             ->first(['id', 'nama_pesantren', 'nama_pengasuh', 'nama_media', 'logo_url', 'nip', 'profile_level', 'region_id', 'status_account', 'social_links']);
@@ -145,7 +145,7 @@ class PublicController extends Controller
         $cleanNip = str_replace('.', '', $nip);
         $suffix   = str_pad($niamSuffix, 2, '0', STR_PAD_LEFT);
 
-        $profile = Profile::where('nip', $cleanNip)->where('status_account', 'active')
+        $profile = PesantrenProfile::where('nip', $cleanNip)->where('status_account', 'active')
             ->first(['id', 'nama_pesantren', 'nip', 'logo_url']);
 
         if (!$profile) return response()->json(['message' => 'Pesantren tidak ditemukan'], 404);

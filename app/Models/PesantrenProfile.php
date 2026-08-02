@@ -12,12 +12,12 @@ class PesantrenProfile extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'id', 'user_id', 'status_account', 'status_payment', 'profile_level',
+        'id', 'user_id', 'status_account', 'status_payment', 'profile_level', 'paid_slot_quantity',
         'nama_pesantren', 'nama_pengasuh', 'nama_media', 'alamat_singkat',
         'no_wa_pendaftar', 'nip', 'regency_id', 'region_id', 'logo_url',
         'foto_pengasuh_url', 'dawuh_pengasuh', 'sk_pesantren_url', 'latitude', 'longitude',
         'jumlah_santri', 'tipe_pesantren', 'program_unggulan', 'sejarah',
-        'visi_misi', 'social_links', 'is_alumni', 'alamat_lengkap',
+        'visi_misi', 'social_links', 'notification_preferences', 'is_alumni', 'alamat_lengkap',
         'kecamatan', 'desa', 'kode_pos', 'maps_link', 'ketua_media',
         'tahun_berdiri', 'jumlah_kru', 'logo_media_path', 'foto_gedung_path',
         'website', 'instagram', 'facebook', 'youtube', 'tiktok', 'jenjang_pendidikan',
@@ -26,6 +26,7 @@ class PesantrenProfile extends Model
     protected $casts = [
         'program_unggulan'   => 'array',
         'social_links'       => 'array',
+        'notification_preferences' => 'array',
         'jenjang_pendidikan' => 'array',
         'is_alumni'          => 'boolean',
     ];

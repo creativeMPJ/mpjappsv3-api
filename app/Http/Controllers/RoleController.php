@@ -3,23 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Models\Role;
+use App\Support\AccessControl;
+use App\Support\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class RoleController extends Controller
 {
-    private function assertSuperAdmin()
+    private function assertRoleAccess(string $action = 'view'): void
     {
         $user = auth()->user();
-        $role = $user->activeRole();
-        if (!$role || !$role->is_super_admin) {
+        if (!$user || !AccessControl::has($user, 'hak-akses', $action)) {
             abort(403, 'Forbidden');
         }
     }
 
     public function index(Request $request)
     {
-        $this->assertSuperAdmin();
+        $this->assertRoleAccess();
 
         $page      = (int) $request->input('page', 1);
         $limit     = (int) $request->input('limit', 10);
@@ -53,7 +54,7 @@ class RoleController extends Controller
 
     public function show($id)
     {
-        $this->assertSuperAdmin();
+        $this->assertRoleAccess();
 
         $role = Role::find($id);
         if (!$role) {
@@ -65,7 +66,7 @@ class RoleController extends Controller
 
     public function store(Request $request)
     {
-        $this->assertSuperAdmin();
+        $this->assertRoleAccess('create');
 
         $request->validate([
             'nama'           => 'required|string',
@@ -80,6 +81,16 @@ class RoleController extends Controller
             'akses'          => $request->akses,
         ]);
 
+        AuditLogger::record(
+            auth()->user(),
+            'role_created',
+            'role',
+            $role->id,
+            $role->nama,
+            'Hak akses dibuat.',
+            ['is_super_admin' => $role->is_super_admin]
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Hak akses berhasil dibuat',
@@ -89,7 +100,7 @@ class RoleController extends Controller
 
     public function update(Request $request, $id)
     {
-        $this->assertSuperAdmin();
+        $this->assertRoleAccess('update');
 
         $role = Role::find($id);
         if (!$role) {
@@ -108,6 +119,16 @@ class RoleController extends Controller
             'akses'          => $request->akses,
         ]);
 
+        AuditLogger::record(
+            auth()->user(),
+            'role_updated',
+            'role',
+            $role->id,
+            $role->nama,
+            'Hak akses diperbarui.',
+            ['is_super_admin' => $role->is_super_admin]
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Hak akses berhasil diperbarui',
@@ -117,14 +138,25 @@ class RoleController extends Controller
 
     public function destroy($id)
     {
-        $this->assertSuperAdmin();
+        $this->assertRoleAccess('delete');
 
         $role = Role::find($id);
         if (!$role) {
             return response()->json(['success' => false, 'message' => 'Role tidak ditemukan'], 404);
         }
 
+        $roleName = $role->nama;
+        $roleId = $role->id;
         $role->delete();
+
+        AuditLogger::record(
+            auth()->user(),
+            'role_deleted',
+            'role',
+            $roleId,
+            $roleName,
+            'Hak akses dihapus.'
+        );
 
         return response()->json(['success' => true, 'message' => 'Hak akses berhasil dihapus']);
     }

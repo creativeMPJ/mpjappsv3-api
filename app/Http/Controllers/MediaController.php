@@ -15,10 +15,21 @@ use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MediaController extends Controller
 {
+    private function defaultNotificationPreferences(): array
+    {
+        return [
+            'email' => true,
+            'whatsapp' => true,
+            'event' => true,
+            'payment' => true,
+        ];
+    }
+
     public function jabatanCodes()
     {
         $codes = JabatanCode::orderBy('name')->get(['id', 'name', 'code', 'description']);
@@ -91,14 +102,26 @@ class MediaController extends Controller
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
         if (!$profile) return response()->json(['message' => 'Profile tidak ditemukan'], 404);
 
+        if ($profile->status_account !== 'active' || $profile->status_payment !== 'paid' || !$profile->nip) {
+            return response()->json([
+                'message' => 'Institusi belum aktif penuh, kru belum bisa ditambahkan.',
+            ], 422);
+        }
+
         $freeSlotQuantity = (int) SystemSetting::getValue('free_slot_quantity', 3);
+        $paidSlotQuantity = (int) ($profile->paid_slot_quantity ?? 0);
+        $totalSlotQuantity = $freeSlotQuantity + $paidSlotQuantity;
         $count = Crew::where('profile_id', $profile->id)
             ->whereIn('status', ['active', 'pending'])
             ->count();
 
-        if ($count >= $freeSlotQuantity) {
-            return response()->json(['message' => "Slot gratis sudah penuh ({$freeSlotQuantity}/{$freeSlotQuantity}). Upgrade untuk menambah kru."], 403);
+        if ($count >= $totalSlotQuantity) {
+            return response()->json([
+                'message' => "Slot kru sudah penuh ({$count}/{$totalSlotQuantity}). Ajukan pembelian slot tambahan terlebih dahulu.",
+            ], 403);
         }
+
+        $usesAddonSlot = $count >= $freeSlotQuantity;
 
         $jabatanName = $data['jabatan'] ?? null;
 
@@ -109,7 +132,7 @@ class MediaController extends Controller
             }
         }
 
-        $result = DB::transaction(function () use ($data, $profile, $jabatanName) {
+        $result = DB::transaction(function () use ($data, $profile, $jabatanName, $user, $usesAddonSlot) {
             // 1. Buat akun login untuk crew
             $crewUser = User::create([
                 'id'            => Str::uuid(),
@@ -125,7 +148,7 @@ class MediaController extends Controller
                 'created_at' => now(),
             ]);
 
-            // 3. Buat record crew, langsung aktif (slot gratis)
+            // 3. Buat record crew pending. Aktivasi dan NIAM diterbitkan setelah invoice diverifikasi.
             $crew = Crew::create([
                 'id'              => Str::uuid(),
                 'profile_id'      => $profile->id,
@@ -137,7 +160,7 @@ class MediaController extends Controller
                 'catatan'         => $data['catatan'] ?? null,
                 'jabatan_code_id' => $data['jabatanCodeId'] ?? null,
                 'niam'            => null,
-                'status'          => 'active',
+                'status'          => 'pending',
                 'is_pic'          => false,
             ]);
 
@@ -147,15 +170,18 @@ class MediaController extends Controller
                 'reff_id'   => $crew->id,
             ]);
 
-            // 5. Generate NIAM langsung jika pesantren sudah punya NIP
-            if ($profile->nip) {
-                $niam = FinanceActivationService::issueCrewNiam($profile, $crew);
-                $crew->update(['niam' => $niam]);
-            }
+            $invoice = FinanceActivationService::ensureCrewActivationInvoice($profile, $crew, $user);
+            $invoice->update([
+                'meta' => array_merge($invoice->meta ?? [], [
+                    'slot_type' => $usesAddonSlot ? 'addon' : 'free',
+                ]),
+            ]);
 
-            return $crew;
+            return [$crew, $invoice];
         });
 
+        [$crew, $invoice] = $result;
+        $result = $crew;
         $result->load('jabatanCode:id,name,code');
 
         return response()->json([
@@ -173,7 +199,15 @@ class MediaController extends Controller
                 'jabatan_code_id' => $result->jabatan_code_id,
                 'jabatan_code'    => $result->jabatanCode,
             ],
-            'invoice' => null,
+            'invoice' => [
+                'id'             => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'status'         => FinanceActivationService::normalizePaymentStatus($invoice->status),
+                'total_amount'   => $invoice->total_amount,
+                'payment_type'   => $invoice->payment_type,
+                'slot_type'      => $usesAddonSlot ? 'addon' : 'free',
+                'pricing_package_name' => $invoice->pricingPackage?->name,
+            ],
         ]);
     }
 
@@ -246,11 +280,17 @@ class MediaController extends Controller
                 'regionalApprovedAt' => null,
                 'pusatApprovedAt'    => null,
                 'koordinator'        => $crew ? [
-                    'nama'     => $crew->nama,
-                    'niam'     => $crew->niam,
-                    'jabatan'  => $crew->jabatan ?? 'Kru',
-                    'status'   => $crew->status,
-                    'xp_level' => $crew->xp_level ?? 0,
+                    'nama'           => $crew->nama,
+                    'nama_panggilan' => $crew->nama_panggilan,
+                    'niam'           => $crew->niam,
+                    'jabatan'        => $crew->jabatan ?? 'Kru',
+                    'status'         => $crew->status,
+                    'xp_level'       => $crew->xp_level ?? 0,
+                    'whatsapp'       => $crew->no_wa,
+                    'alamat_asal'    => $crew->alamat_asal,
+                    'prinsip_hidup'  => $crew->prinsip_hidup,
+                    'photoUrl'       => $crew->photo_url,
+                    'cvUrl'          => $crew->cv_url,
                 ] : null,
             ]);
         }
@@ -269,18 +309,24 @@ class MediaController extends Controller
 
         $koordinator = Crew::where('profile_id', $profile?->id)
             ->where('jabatan', 'Koordinator')
-            ->select('nama', 'niam', 'jabatan', 'status', 'xp_level')
+            ->select('nama', 'nama_panggilan', 'niam', 'jabatan', 'status', 'xp_level', 'no_wa', 'alamat_asal', 'prinsip_hidup', 'photo_url', 'cv_url')
             ->first();
 
         return response()->json([
             'regionalApprovedAt' => $claim?->regional_approved_at,
             'pusatApprovedAt'    => $claim?->approved_at,
             'koordinator'        => $koordinator ? [
-                'nama'     => $koordinator->nama,
-                'niam'     => $koordinator->niam,
-                'jabatan'  => $koordinator->jabatan ?? 'Koordinator',
-                'status'   => $koordinator->status,
-                'xp_level' => $koordinator->xp_level ?? 0,
+                'nama'           => $koordinator->nama,
+                'nama_panggilan' => $koordinator->nama_panggilan,
+                'niam'           => $koordinator->niam,
+                'jabatan'        => $koordinator->jabatan ?? 'Koordinator',
+                'status'         => $koordinator->status,
+                'xp_level'       => $koordinator->xp_level ?? 0,
+                'whatsapp'       => $koordinator->no_wa,
+                'alamat_asal'    => $koordinator->alamat_asal,
+                'prinsip_hidup'  => $koordinator->prinsip_hidup,
+                'photoUrl'       => $koordinator->photo_url,
+                'cvUrl'          => $koordinator->cv_url,
             ] : null,
         ]);
     }
@@ -298,7 +344,77 @@ class MediaController extends Controller
 
         return response()->json([
             'freeSlotQuantity' => (int) SystemSetting::getValue('free_slot_quantity', 3),
+            'paidSlotQuantity' => (int) ($profile->paid_slot_quantity ?? 0),
+            'totalSlotQuantity' => (int) SystemSetting::getValue('free_slot_quantity', 3) + (int) ($profile->paid_slot_quantity ?? 0),
             'addonSlotPrice' => (int) SystemSetting::getValue('addon_slot_price', 0),
+        ]);
+    }
+
+    public function requestSlotAddon(Request $request)
+    {
+        $user = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile tidak ditemukan'], 404);
+        }
+
+        if ($profile->status_account !== 'active' || $profile->status_payment !== 'paid' || !$profile->nip) {
+            return response()->json(['message' => 'Institusi belum aktif penuh, slot tambahan belum bisa diajukan.'], 422);
+        }
+
+        $data = $request->validate([
+            'quantity' => 'required|integer|min:1|max:20',
+        ]);
+
+        $payment = FinanceActivationService::ensureProfilePackageInvoice(
+            $profile,
+            'crew_addon',
+            FinanceActivationService::TYPE_SLOT_ADDON,
+            $user,
+            [
+                'slot_quantity' => $data['quantity'],
+                'current_paid_slot_quantity' => (int) ($profile->paid_slot_quantity ?? 0),
+            ]
+        );
+
+        $paymentStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+        if (in_array($paymentStatus, [
+            FinanceActivationService::STATUS_PENDING,
+            FinanceActivationService::STATUS_REJECTED,
+        ], true)) {
+            $unitAmount = $payment->pricingPackage
+                ? (int) ($payment->pricingPackage->harga_diskon ?? $payment->pricingPackage->harga_paket)
+                : (int) SystemSetting::getValue('addon_slot_price', 0);
+
+            $payment->update([
+                'base_amount' => $unitAmount * $data['quantity'],
+                'total_amount' => ($unitAmount * $data['quantity']) + $payment->unique_code,
+                'status' => FinanceActivationService::STATUS_PENDING,
+                'rejection_reason' => null,
+                'meta' => array_merge($payment->meta ?? [], ['slot_quantity' => $data['quantity']]),
+            ]);
+        } elseif ($paymentStatus === FinanceActivationService::STATUS_WAITING_VERIFICATION) {
+            return response()->json([
+                'message' => 'Invoice slot tambahan sedang menunggu verifikasi finance.',
+            ], 422);
+        }
+
+        $payment->load('pricingPackage');
+
+        return response()->json([
+            'success' => true,
+            'payment' => [
+                'id' => $payment->id,
+                'invoiceNumber' => $payment->invoice_number,
+                'status' => FinanceActivationService::normalizePaymentStatus($payment->status),
+                'totalAmount' => $payment->total_amount,
+                'paymentType' => $payment->payment_type,
+                'quantity' => $payment->meta['slot_quantity'] ?? $data['quantity'],
+                'pricingPackageName' => $payment->pricingPackage?->name,
+                'pricingPackageCategory' => $payment->pricingPackage?->category,
+            ],
         ]);
     }
 
@@ -318,6 +434,140 @@ class MediaController extends Controller
             'namaPengelola' => $claim?->nama_pengelola,
             'email'         => $user->email,
             'noWaPendaftar' => $linkedCrew?->no_wa,
+            'namaPanggilan' => $linkedCrew?->nama_panggilan,
+            'alamatAsal'    => $linkedCrew?->alamat_asal,
+            'prinsipHidup'  => $linkedCrew?->prinsip_hidup,
+            'photoUrl'      => $linkedCrew?->photo_url,
+            'cvUrl'         => $linkedCrew?->cv_url,
+        ]);
+    }
+
+    public function notificationPreferences(Request $request)
+    {
+        $user = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile tidak ditemukan'], 404);
+        }
+
+        return response()->json([
+            'preferences' => array_merge(
+                $this->defaultNotificationPreferences(),
+                $profile->notification_preferences ?? []
+            ),
+        ]);
+    }
+
+    public function updateNotificationPreferences(Request $request)
+    {
+        $user = auth()->user();
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile tidak ditemukan'], 404);
+        }
+
+        $data = $request->validate([
+            'email' => 'required|boolean',
+            'whatsapp' => 'required|boolean',
+            'event' => 'required|boolean',
+            'payment' => 'required|boolean',
+        ]);
+
+        $profile->update(['notification_preferences' => $data]);
+
+        return response()->json([
+            'success' => true,
+            'preferences' => array_merge($this->defaultNotificationPreferences(), $data),
+        ]);
+    }
+
+    public function updateProfileSettings(Request $request)
+    {
+        $user = auth()->user();
+        $crew = ($user->reff_type === 'crew' && $user->reff_id)
+            ? Crew::find($user->reff_id)
+            : null;
+
+        if (!$crew) {
+            return response()->json(['message' => 'Profil kru tidak ditemukan'], 404);
+        }
+
+        $data = $request->validate([
+            'namaPanggilan' => 'nullable|string|max:100',
+            'whatsapp'      => 'nullable|string|max:32',
+            'alamatAsal'    => 'nullable|string|max:1000',
+            'prinsipHidup'  => 'nullable|string|max:1000',
+        ]);
+
+        $crew->update([
+            'nama_panggilan' => $data['namaPanggilan'] ?? null,
+            'no_wa'          => $data['whatsapp'] ?? null,
+            'alamat_asal'    => $data['alamatAsal'] ?? null,
+            'prinsip_hidup'  => $data['prinsipHidup'] ?? null,
+        ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function uploadCrewCv(Request $request)
+    {
+        $user = auth()->user();
+        $crew = ($user->reff_type === 'crew' && $user->reff_id)
+            ? Crew::find($user->reff_id)
+            : null;
+
+        if (!$crew) {
+            return response()->json(['message' => 'Profil kru tidak ditemukan'], 404);
+        }
+
+        $request->validate([
+            'file' => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:2048',
+        ]);
+
+        $file = $request->file('file');
+        $relativePath = $file->storeAs(
+            'crew-cv/' . $crew->id,
+            time() . '.' . $file->getClientOriginalExtension(),
+            'public'
+        );
+
+        $crew->update(['cv_url' => Storage::url($relativePath)]);
+
+        return response()->json([
+            'success' => true,
+            'cvUrl' => $crew->cv_url,
+        ]);
+    }
+
+    public function uploadCrewPhoto(Request $request)
+    {
+        $user = auth()->user();
+        $crew = ($user->reff_type === 'crew' && $user->reff_id)
+            ? Crew::find($user->reff_id)
+            : null;
+
+        if (!$crew) {
+            return response()->json(['message' => 'Profil kru tidak ditemukan'], 404);
+        }
+
+        $request->validate([
+            'file' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ]);
+
+        $file = $request->file('file');
+        $relativePath = $file->storeAs(
+            'crew-photos/' . $crew->id,
+            time() . '.' . $file->getClientOriginalExtension(),
+            'public'
+        );
+
+        $crew->update(['photo_url' => Storage::url($relativePath)]);
+
+        return response()->json([
+            'success' => true,
+            'photoUrl' => $crew->photo_url,
         ]);
     }
 }

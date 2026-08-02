@@ -43,6 +43,7 @@ return new class extends Migration {
                 $table->enum('status_account', ['pending', 'active', 'rejected'])->default('pending');
                 $table->enum('status_payment', ['paid', 'unpaid', 'expired'])->default('unpaid');
                 $table->enum('profile_level', ['basic', 'silver', 'gold', 'platinum'])->default('basic');
+                $table->unsignedInteger('paid_slot_quantity')->default(0);
                 $table->string('nama_pesantren')->nullable();
                 $table->string('nama_pengasuh')->nullable();
                 $table->string('nama_media')->nullable();
@@ -165,7 +166,7 @@ return new class extends Migration {
             Schema::create('pricing_packages', function (Blueprint $table) {
                 $table->uuid('id')->primary();
                 $table->string('name');
-                $table->enum('category', ['registration', 'renewal', 'upgrade']);
+                $table->string('category');
                 $table->integer('harga_paket');
                 $table->integer('harga_diskon')->nullable();
                 $table->boolean('is_active')->default(true);

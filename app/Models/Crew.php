@@ -10,9 +10,10 @@ class Crew extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'id', 'profile_id', 'nama', 'jabatan', 'jabatan_code_id',
+        'id', 'profile_id', 'nama', 'nama_panggilan', 'jabatan', 'jabatan_code_id',
         'email', 'jabatan_media', 'niam', 'no_wa', 'status', 'skill',
-        'catatan', 'xp_level', 'is_pic',
+        'catatan', 'alamat_asal', 'prinsip_hidup', 'photo_url', 'cv_url',
+        'xp_level', 'is_pic',
     ];
 
     protected $casts = ['skill' => 'array'];

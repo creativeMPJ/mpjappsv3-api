@@ -999,15 +999,17 @@ Memperbarui pengaturan rekening bank.
 
 ### GET /api/admin/price-settings
 
-Mendapatkan pengaturan harga pendaftaran.
+Mendapatkan pengaturan harga pendaftaran dan slot kru.
 
-**Auth:** Diperlukan | Role: `admin_pusat`
+**Auth:** Diperlukan | Role: `admin_pusat` atau `admin_finance`
 
 **Response 200:**
 ```json
 {
   "registrationPrice": 150000,
-  "claimPrice": 100000
+  "claimPrice": 100000,
+  "freeSlotQuantity": 3,
+  "addonSlotPrice": 25000
 }
 ```
 
@@ -1015,9 +1017,9 @@ Mendapatkan pengaturan harga pendaftaran.
 
 ### POST /api/admin/price-settings
 
-Memperbarui pengaturan harga.
+Memperbarui pengaturan harga dan slot kru.
 
-**Auth:** Diperlukan | Role: `admin_pusat`
+**Auth:** Diperlukan | Role: `admin_finance`
 **Content-Type:** `application/json`
 
 **Request Body:**
@@ -1026,6 +1028,8 @@ Memperbarui pengaturan harga.
 |---|---|---|---|
 | `registrationPrice` | integer | Ya | Harga pendaftaran pesantren baru (min. 1) |
 | `claimPrice` | integer | Ya | Harga klaim pesantren (min. 1) |
+| `freeSlotQuantity` | integer | Ya | Jumlah slot gratis per pesantren (1-20) |
+| `addonSlotPrice` | integer | Ya | Harga add-on per slot kru (min. 0) |
 
 **Response 200:**
 ```json
@@ -1285,7 +1289,7 @@ Mendapatkan semua paket harga.
 
 Membuat paket harga baru.
 
-**Auth:** Diperlukan | Role: `admin_pusat` atau `admin_finance`
+**Auth:** Diperlukan | Role: `admin_finance`
 **Content-Type:** `application/json`
 
 **Request Body:**
@@ -1293,7 +1297,7 @@ Membuat paket harga baru.
 | Field | Type | Required | Keterangan |
 |---|---|---|---|
 | `name` | string | Ya | Nama paket |
-| `category` | string | Ya | `registration` \| `renewal` \| `upgrade` |
+| `category` | string | Ya | `registration` \| `renewal` \| `upgrade` \| `crew_addon` |
 | `hargaPaket` | integer | Ya | Harga normal (min. 1) |
 | `hargaDiskon` | integer | Tidak | Harga diskon (min. 1) |
 | `isActive` | boolean | Tidak | Status aktif; default: `true` |
@@ -1323,7 +1327,7 @@ Membuat paket harga baru.
 
 Memperbarui paket harga.
 
-**Auth:** Diperlukan | Role: `admin_pusat` atau `admin_finance`
+**Auth:** Diperlukan | Role: `admin_finance`
 **Content-Type:** `application/json`
 
 **Path Parameter:**
@@ -1337,7 +1341,7 @@ Memperbarui paket harga.
 | Field | Type | Required | Keterangan |
 |---|---|---|---|
 | `name` | string | Tidak | Nama paket |
-| `category` | string | Tidak | `registration` \| `renewal` \| `upgrade` |
+| `category` | string | Tidak | `registration` \| `renewal` \| `upgrade` \| `crew_addon` |
 | `hargaPaket` | integer | Tidak | Harga normal |
 | `hargaDiskon` | integer | Tidak | Harga diskon |
 | `isActive` | boolean | Tidak | Status aktif |
@@ -1355,7 +1359,7 @@ Memperbarui paket harga.
 
 Mengaktifkan/menonaktifkan paket harga.
 
-**Auth:** Diperlukan | Role: `admin_pusat` atau `admin_finance`
+**Auth:** Diperlukan | Role: `admin_finance`
 
 **Path Parameter:**
 

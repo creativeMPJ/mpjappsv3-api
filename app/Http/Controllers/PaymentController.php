@@ -39,14 +39,12 @@ class PaymentController extends Controller
             return response()->json(['accessDeniedReason' => 'Status pengajuan tidak valid untuk pembayaran.']);
         }
 
-        $priceKey  = $claim->jenis_pengajuan === 'klaim' ? 'claim_base_price' : 'registration_base_price';
-        $baseAmount = (int) (SystemSetting::getValue($priceKey, 50000));
-
         $bankName          = SystemSetting::getValue('bank_name', 'Bank Syariah Indonesia (BSI)');
         $bankAccountNumber = SystemSetting::getValue('bank_account_number', '7171234567890');
         $bankAccountName   = SystemSetting::getValue('bank_account_name', 'MEDIA PONDOK JAWA TIMUR');
 
-        $payment = Payment::where('user_id', $profile->id)
+        $payment = Payment::with('pricingPackage')
+            ->where('user_id', $profile->id)
             ->where('payment_type', FinanceActivationService::TYPE_INSTITUTION_ACTIVATION)
             ->where('reference_type', FinanceActivationService::REFERENCE_PROFILE)
             ->where('reference_id', $profile->id)
@@ -55,6 +53,7 @@ class PaymentController extends Controller
 
         if (!$payment && $claim->status === 'regional_approved') {
             $payment = FinanceActivationService::ensureInstitutionActivationInvoice($profile, $claim);
+            $payment->load('pricingPackage');
         }
 
         if (!$payment && in_array($claim->status, ['approved', 'pusat_approved'])) {
@@ -79,6 +78,27 @@ class PaymentController extends Controller
         }
 
         $normalizedStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+        $activeFollowUpPayment = Payment::with('pricingPackage')
+            ->where('user_id', $profile->id)
+            ->whereIn('payment_type', [
+                FinanceActivationService::TYPE_CREW_ACTIVATION,
+                FinanceActivationService::TYPE_SLOT_ADDON,
+                FinanceActivationService::TYPE_PROFILE_UPGRADE,
+                FinanceActivationService::TYPE_PROFILE_RENEWAL,
+            ])
+            ->whereIn('status', [
+                FinanceActivationService::STATUS_PENDING,
+                FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                FinanceActivationService::STATUS_REJECTED,
+            ])
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($normalizedStatus === FinanceActivationService::STATUS_VERIFIED && $activeFollowUpPayment) {
+            $payment = $activeFollowUpPayment;
+            $normalizedStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+        }
+
         $claimPayload = [
             'id'               => $claim->id,
             'pesantren_name'   => $claim->pesantren_name,
@@ -104,10 +124,12 @@ class PaymentController extends Controller
                     'id' => $payment->id,
                     'status' => $normalizedStatus,
                     'rejectionReason' => $payment->rejection_reason,
-                    'paymentType' => $payment->payment_type,
-                    'invoiceNumber' => $payment->invoice_number,
-                    'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
-                ],
+                'paymentType' => $payment->payment_type,
+                'invoiceNumber' => $payment->invoice_number,
+                'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
+                'pricingPackageName' => $payment->pricingPackage?->name,
+                'pricingPackageCategory' => $payment->pricingPackage?->category,
+            ],
             ]);
         }
 
@@ -123,11 +145,14 @@ class PaymentController extends Controller
                     'paymentType' => $payment->payment_type,
                     'invoiceNumber' => $payment->invoice_number,
                     'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
+                    'pricingPackageName' => $payment->pricingPackage?->name,
+                    'pricingPackageCategory' => $payment->pricingPackage?->category,
                 ],
             ]);
         }
 
-        $crewInvoices = Payment::where('user_id', $profile->id)
+        $crewInvoices = Payment::with('pricingPackage')
+            ->where('user_id', $profile->id)
             ->where('payment_type', FinanceActivationService::TYPE_CREW_ACTIVATION)
             ->orderBy('created_at', 'desc')
             ->get()
@@ -139,6 +164,8 @@ class PaymentController extends Controller
                 'invoiceNumber' => $invoice->invoice_number,
                 'totalAmount' => $invoice->total_amount,
                 'rejectionReason' => $invoice->rejection_reason,
+                'pricingPackageName' => $invoice->pricingPackage?->name,
+                'pricingPackageCategory' => $invoice->pricingPackage?->category,
             ]);
 
         return response()->json([
@@ -152,6 +179,8 @@ class PaymentController extends Controller
                 'paymentType'     => $payment->payment_type,
                 'invoiceNumber'   => $payment->invoice_number,
                 'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
+                'pricingPackageName' => $payment->pricingPackage?->name,
+                'pricingPackageCategory' => $payment->pricingPackage?->category,
             ],
             'claim'   => $claimPayload,
             'profile' => $profilePayload,
@@ -182,7 +211,8 @@ class PaymentController extends Controller
             ]);
         }
 
-        $payment = Payment::where('user_id', $profile->id)
+        $payment = Payment::with('pricingPackage')
+            ->where('user_id', $profile->id)
             ->where('payment_type', FinanceActivationService::TYPE_INSTITUTION_ACTIVATION)
             ->where('reference_type', FinanceActivationService::REFERENCE_PROFILE)
             ->where('reference_id', $profile->id)
@@ -191,6 +221,7 @@ class PaymentController extends Controller
 
         if (!$payment && $claim->status === 'regional_approved') {
             $payment = FinanceActivationService::ensureInstitutionActivationInvoice($profile, $claim);
+            $payment->load('pricingPackage');
         }
 
         if (!$payment) {
@@ -200,7 +231,8 @@ class PaymentController extends Controller
             ]);
         }
 
-        $crewInvoices = Payment::where('user_id', $profile->id)
+        $crewInvoices = Payment::with('pricingPackage')
+            ->where('user_id', $profile->id)
             ->where('payment_type', FinanceActivationService::TYPE_CREW_ACTIVATION)
             ->orderBy('created_at', 'desc')
             ->get();
@@ -214,6 +246,8 @@ class PaymentController extends Controller
                 'totalAmount'     => $payment->total_amount,
                 'status'          => FinanceActivationService::normalizePaymentStatus($payment->status),
                 'rejectionReason' => $payment->rejection_reason,
+                'pricingPackageName' => $payment->pricingPackage?->name,
+                'pricingPackageCategory' => $payment->pricingPackage?->category,
             ],
             'crewInvoices' => $crewInvoices->map(fn($invoice) => [
                 'id' => $invoice->id,
@@ -223,6 +257,8 @@ class PaymentController extends Controller
                 'invoiceNumber' => $invoice->invoice_number,
                 'totalAmount' => $invoice->total_amount,
                 'rejectionReason' => $invoice->rejection_reason,
+                'pricingPackageName' => $invoice->pricingPackage?->name,
+                'pricingPackageCategory' => $invoice->pricingPackage?->category,
             ]),
         ]);
     }
@@ -244,9 +280,11 @@ class PaymentController extends Controller
 
         if (!$payment) return response()->json(['message' => 'Pembayaran tidak ditemukan'], 404);
 
-        $file         = $request->file('file');
-        $relativePath = "payment-proofs/{$user->id}/" . time() . '.' . $file->getClientOriginalExtension();
-        $file->storeAs('payment-proofs/' . $user->id, time() . '.' . $file->getClientOriginalExtension(), 'public');
+        $file = $request->file('file');
+        $filename = time() . '-' . Str::random(8) . '.' . $file->getClientOriginalExtension();
+        $directory = "payment-proofs/{$user->id}";
+        $relativePath = "{$directory}/{$filename}";
+        $file->storeAs($directory, $filename, 'public');
 
         $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
 

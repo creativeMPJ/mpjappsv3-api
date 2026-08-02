@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\PaymentLog;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
+use App\Models\PricingPackage;
 use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,8 @@ class FinanceActivationService
     public const TYPE_CREW_ACTIVATION = 'crew_activation';
     public const TYPE_EVENT_REGISTRATION = 'event_registration';
     public const TYPE_SLOT_ADDON = 'slot_addon';
+    public const TYPE_PROFILE_UPGRADE = 'profile_upgrade';
+    public const TYPE_PROFILE_RENEWAL = 'profile_renewal';
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_WAITING_VERIFICATION = 'waiting_verification';
@@ -96,6 +99,8 @@ class FinanceActivationService
             self::TYPE_CREW_ACTIVATION => 'CRA',
             self::TYPE_EVENT_REGISTRATION => 'EVR',
             self::TYPE_SLOT_ADDON => 'SLA',
+            self::TYPE_PROFILE_UPGRADE => 'UPG',
+            self::TYPE_PROFILE_RENEWAL => 'REN',
             default => 'INA',
         };
 
@@ -114,6 +119,22 @@ class FinanceActivationService
     public static function getCrewActivationPrice(): int
     {
         return (int) SystemSetting::getValue('crew_activation_price', 25000);
+    }
+
+    public static function getActiveCrewAddonPackage(): ?PricingPackage
+    {
+        return PricingPackage::where('category', 'crew_addon')
+            ->where('is_active', true)
+            ->orderByRaw('COALESCE(harga_diskon, harga_paket) ASC')
+            ->first();
+    }
+
+    public static function getActivePackageByCategory(string $category): ?PricingPackage
+    {
+        return PricingPackage::where('category', $category)
+            ->where('is_active', true)
+            ->orderByRaw('COALESCE(harga_diskon, harga_paket) ASC')
+            ->first();
     }
 
     public static function getEventMemberPrice(): int
@@ -145,14 +166,20 @@ class FinanceActivationService
             return $existing;
         }
 
+        $pricingPackage = $claim->pricing_package_id
+            ? PricingPackage::where('id', $claim->pricing_package_id)->where('is_active', true)->first()
+            : null;
         $priceKey = $claim->jenis_pengajuan === 'klaim' ? 'claim_base_price' : 'registration_base_price';
-        $baseAmount = (int) SystemSetting::getValue($priceKey, 50000);
+        $baseAmount = $pricingPackage
+            ? (int) ($pricingPackage->harga_diskon ?? $pricingPackage->harga_paket)
+            : (int) SystemSetting::getValue($priceKey, 50000);
         $uniqueCode = random_int(100, 999);
 
         $payment = Payment::create([
             'id' => Str::uuid(),
             'user_id' => $profile->id,
             'pesantren_claim_id' => $claim->id,
+            'pricing_package_id' => $pricingPackage?->id,
             'payment_type' => self::TYPE_INSTITUTION_ACTIVATION,
             'reference_type' => self::REFERENCE_PROFILE,
             'reference_id' => $profile->id,
@@ -162,6 +189,12 @@ class FinanceActivationService
             'total_amount' => $baseAmount + $uniqueCode,
             'status' => self::STATUS_PENDING,
             'created_by' => $profile->user_id,
+            'meta' => $pricingPackage ? [
+                'pricing_package_name' => $pricingPackage->name,
+                'pricing_package_category' => $pricingPackage->category,
+                'pricing_package_price' => $pricingPackage->harga_paket,
+                'pricing_package_discount' => $pricingPackage->harga_diskon,
+            ] : null,
         ]);
 
         self::logPaymentStatusChange($payment, $profile->user_id, 'invoice_created', null, self::STATUS_PENDING, 'Invoice aktivasi institusi dibuat.');
@@ -183,13 +216,17 @@ class FinanceActivationService
         }
 
         $claim = self::latestProfileClaim($profile);
-        $baseAmount = self::getCrewActivationPrice();
+        $pricingPackage = self::getActiveCrewAddonPackage();
+        $baseAmount = $pricingPackage
+            ? (int) ($pricingPackage->harga_diskon ?? $pricingPackage->harga_paket)
+            : self::getCrewActivationPrice();
         $uniqueCode = random_int(100, 999);
 
         $payment = Payment::create([
             'id' => Str::uuid(),
             'user_id' => $profile->id,
             'pesantren_claim_id' => $claim?->id,
+            'pricing_package_id' => $pricingPackage?->id,
             'payment_type' => self::TYPE_CREW_ACTIVATION,
             'reference_type' => self::REFERENCE_CREW,
             'reference_id' => $crew->id,
@@ -202,10 +239,68 @@ class FinanceActivationService
             'meta' => [
                 'crew_name' => $crew->nama,
                 'crew_role' => $crew->jabatan,
+                'pricing_package_name' => $pricingPackage?->name,
+                'pricing_package_category' => $pricingPackage?->category,
+                'pricing_package_price' => $pricingPackage?->harga_paket,
+                'pricing_package_discount' => $pricingPackage?->harga_diskon,
             ],
         ]);
 
         self::logPaymentStatusChange($payment, $actor?->id ?? $profile->user_id, 'invoice_created', null, self::STATUS_PENDING, 'Invoice aktivasi kru dibuat.');
+
+        return $payment;
+    }
+
+    public static function ensureProfilePackageInvoice(
+        PesantrenProfile $profile,
+        string $category,
+        string $paymentType,
+        ?User $actor = null,
+        array $meta = []
+    ): Payment {
+        $existing = Payment::where('payment_type', $paymentType)
+            ->where('reference_type', self::REFERENCE_PROFILE)
+            ->where('reference_id', $profile->id)
+            ->whereIn('status', [self::STATUS_PENDING, self::STATUS_WAITING_VERIFICATION, self::STATUS_REJECTED])
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $pricingPackage = self::getActivePackageByCategory($category);
+        if (!$pricingPackage) {
+            abort(422, 'Paket harga aktif belum tersedia.');
+        }
+
+        $claim = self::latestProfileClaim($profile);
+        $baseAmount = (int) ($pricingPackage->harga_diskon ?? $pricingPackage->harga_paket);
+        $uniqueCode = random_int(100, 999);
+
+        $payment = Payment::create([
+            'id' => Str::uuid(),
+            'user_id' => $profile->id,
+            'pesantren_claim_id' => $claim?->id,
+            'pricing_package_id' => $pricingPackage->id,
+            'payment_type' => $paymentType,
+            'reference_type' => self::REFERENCE_PROFILE,
+            'reference_id' => $profile->id,
+            'invoice_number' => self::buildInvoiceNumber($paymentType),
+            'base_amount' => $baseAmount,
+            'unique_code' => $uniqueCode,
+            'total_amount' => $baseAmount + $uniqueCode,
+            'status' => self::STATUS_PENDING,
+            'created_by' => $actor?->id ?? $profile->user_id,
+            'meta' => array_merge($meta, [
+                'pricing_package_name' => $pricingPackage->name,
+                'pricing_package_category' => $pricingPackage->category,
+                'pricing_package_price' => $pricingPackage->harga_paket,
+                'pricing_package_discount' => $pricingPackage->harga_diskon,
+            ]),
+        ]);
+
+        self::logPaymentStatusChange($payment, $actor?->id ?? $profile->user_id, 'invoice_created', null, self::STATUS_PENDING, 'Invoice paket profil dibuat.');
 
         return $payment;
     }

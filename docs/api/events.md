@@ -22,6 +22,19 @@ Mendapatkan semua event (untuk admin pusat / pengguna umum).
     "date": "2026-04-15 08:00:00",
     "location": "Gedung Serbaguna, Jombang",
     "status": "upcoming",
+    "member_price": 0,
+    "public_price": 35000,
+    "certificate_enabled": true,
+    "speakers": [
+      {
+        "id": "uuid",
+        "name": "Ust. Ahmad",
+        "title": "Pemateri Media Pesantren",
+        "phone": "6281234567890",
+        "photo_url": null,
+        "bio": "Praktisi media pesantren"
+      }
+    ],
     "created_at": "2026-03-01T00:00:00.000000Z",
     "updated_at": "2026-03-01T00:00:00.000000Z"
   }
@@ -49,6 +62,15 @@ Membuat event baru.
 | `date` | date | Ya | Tanggal event (format: `YYYY-MM-DD` atau `YYYY-MM-DD HH:MM:SS`) |
 | `location` | string | Tidak | Lokasi event |
 | `status` | string | Tidak | Status event; default: `upcoming` |
+| `member_price` | integer | Tidak | Harga peserta member; default dari setting event |
+| `public_price` | integer | Tidak | Harga peserta umum; default dari setting event |
+| `certificate_enabled` | boolean | Tidak | Aktifkan sertifikat untuk peserta hadir |
+| `speakers` | array | Tidak | Daftar narasumber event |
+| `speakers.*.name` | string | Ya jika `speakers` diisi | Nama narasumber |
+| `speakers.*.title` | string | Tidak | Jabatan/keahlian narasumber |
+| `speakers.*.phone` | string | Tidak | Kontak narasumber |
+| `speakers.*.photo_url` | string | Tidak | URL foto narasumber |
+| `speakers.*.bio` | string | Tidak | Catatan singkat narasumber |
 
 **Contoh Request:**
 ```json
@@ -56,7 +78,18 @@ Membuat event baru.
   "name": "Musyawarah Tahunan MPJ",
   "description": "Musyawarah tahunan seluruh anggota MPJ",
   "date": "2026-04-15",
-  "location": "Gedung Serbaguna, Jombang"
+  "location": "Gedung Serbaguna, Jombang",
+  "member_price": 0,
+  "public_price": 35000,
+  "certificate_enabled": true,
+  "speakers": [
+    {
+      "name": "Ust. Ahmad",
+      "title": "Pemateri Media Pesantren",
+      "phone": "6281234567890",
+      "bio": "Praktisi media pesantren"
+    }
+  ]
 }
 ```
 
