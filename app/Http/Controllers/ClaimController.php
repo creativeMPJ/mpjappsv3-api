@@ -69,15 +69,13 @@ class ClaimController extends Controller
 
     public function search(Request $request)
     {
-        // Endpoint ini mengembalikan nama & email pengelola, jadi hanya boleh
-        // dipakai admin. Tanpa penjagaan ini user pesantren biasa bisa menarik
-        // data klaim seluruh wilayah.
+        // Endpoint ini dipakai halaman klaim publik, jadi tidak boleh dikunci ke
+        // admin. Yang dibatasi adalah isinya: email pengelola dan user_id tidak
+        // dipakai UI klaim dan hanya dikirim ke admin, supaya endpoint terbuka
+        // ini tidak bisa dipakai memanen alamat email seluruh pesantren.
         $role    = $this->currentRoleName();
         $profile = $this->currentProfile();
-
-        if ($role !== 'Admin Pusat' && $role !== 'Admin Regional') {
-            return response()->json(['message' => 'Anda tidak berhak mengakses pencarian klaim'], 403);
-        }
+        $isAdmin = in_array($role, ['Admin Pusat', 'Admin Regional'], true);
 
         if ($role === 'Admin Regional' && !$profile?->region_id) {
             return response()->json(['message' => 'Akun Admin Regional belum terhubung ke wilayah mana pun'], 403);
@@ -86,9 +84,15 @@ class ClaimController extends Controller
         $q = trim($request->query('query', ''));
         if (!$q) return response()->json(['results' => []]);
 
-        $results = PesantrenClaim::where(function ($query) use ($q) {
-                $query->where('pesantren_name', 'like', "%{$q}%")
-                      ->orWhere('email_pengelola', 'like', "%{$q}%");
+        $results = PesantrenClaim::where(function ($query) use ($q, $isAdmin) {
+                $query->where('pesantren_name', 'like', "%{$q}%");
+
+                // Pencocokan email hanya untuk admin. Kalau dibuka untuk publik,
+                // endpoint ini bisa dipakai menebak apakah sebuah alamat email
+                // terdaftar, cukup dari ada tidaknya hasil.
+                if ($isAdmin) {
+                    $query->orWhere('email_pengelola', 'like', "%{$q}%");
+                }
             })
             ->when($role === 'Admin Regional', fn($query) => $query->where('region_id', $profile->region_id))
             ->whereNotIn('status', ['approved', 'pusat_approved'])
@@ -97,16 +101,25 @@ class ClaimController extends Controller
             ->get();
 
         return response()->json([
-            'results' => $results->map(fn($r) => [
-                'id'              => $r->id,
-                'pesantren_name'  => $r->pesantren_name,
-                'kecamatan'       => $r->kecamatan,
-                'nama_pengelola'  => $r->nama_pengelola,
-                'email_pengelola' => $r->email_pengelola,
-                'region_id'       => $r->region_id,
-                'user_id'         => $r->user_id,
-                'status'          => $r->status,
-            ]),
+            'results' => $results->map(function ($r) use ($isAdmin) {
+                $item = [
+                    'id'             => $r->id,
+                    'pesantren_name' => $r->pesantren_name,
+                    'kecamatan'      => $r->kecamatan,
+                    // Ditampilkan di langkah konfirmasi "ini pesantren Anda?",
+                    // jadi tetap dikirim ke pemakai publik.
+                    'nama_pengelola' => $r->nama_pengelola,
+                    'region_id'      => $r->region_id,
+                    'status'         => $r->status,
+                ];
+
+                if ($isAdmin) {
+                    $item['email_pengelola'] = $r->email_pengelola;
+                    $item['user_id']         = $r->user_id;
+                }
+
+                return $item;
+            }),
         ]);
     }
 
