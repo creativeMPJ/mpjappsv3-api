@@ -24,6 +24,7 @@ use App\Support\AuditLogger;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -49,6 +50,54 @@ class AdminController extends Controller
         'regional-monitoring',
         'finance',
     ];
+
+
+    // Batas percobaan penerbitan NIP: kolom nip belum punya unique constraint,
+    // jadi kandidat diverifikasi di aplikasi dan percobaannya harus dibatasi
+    // supaya tidak berputar tanpa henti saat data sudah tidak konsisten.
+    private const NIP_MAX_ATTEMPTS = 5;
+
+    // Hanya pembayaran yang masih menunggu yang boleh diverifikasi atau ditolak,
+    // supaya pembayaran yang sudah verified/rejected tidak berubah status lagi.
+    private const PAYMENT_ACTIONABLE_STATUSES = [
+        FinanceActivationService::STATUS_PENDING,
+        FinanceActivationService::STATUS_WAITING_VERIFICATION,
+    ];
+
+    // Seluruh tabel yang menyimpan kolom region_id (hasil penelusuran
+    // database/migrations). Dipakai saat penggabungan regional supaya tidak ada
+    // baris yang tertinggal menunjuk ke regional yang sudah dihapus.
+    // region_regencies sengaja tidak ada di sini: kuncinya gabungan dan
+    // ditangani terpisah di mergeRegions().
+    private const REGION_REFERENCE_TABLES = [
+        'pesantren_profiles',
+        'pesantren_claims',
+        'pesantren_directory',
+        'regional_reports',
+        'follow_up_logs',
+        'event_reports',
+        'events',
+    ];
+
+    /**
+     * Pembayaran yang sudah verified tidak boleh diubah lagi: NIP sudah terbit
+     * dan profil sudah aktif, sehingga menolaknya menyisakan pesantren aktif
+     * dengan pembayaran berstatus rejected. Yang sudah rejected/expired/
+     * cancelled juga tidak boleh langsung di-approve.
+     */
+    private function assertPaymentActionable(Payment $payment): void
+    {
+        $current = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+        if (in_array($current, self::PAYMENT_ACTIONABLE_STATUSES, true)) {
+            return;
+        }
+
+        abort(response()->json([
+            'message' => "Pembayaran ini berstatus {$current} sehingga tidak bisa diproses lagi.",
+            'status'  => $current,
+        ], 409));
+    }
 
     private function assertPusat()
     {
@@ -141,11 +190,74 @@ class AdminController extends Controller
             abort(422, 'Kode RR Belum Valid');
         }
 
-        $count = PesantrenClaim::where('region_id', $payment->claim->region_id)
-            ->whereNotNull('mpj_id_number')
-            ->count();
+        return $this->issueNipForRegion($region->id, $region->code);
+    }
 
-        return now()->format('y') . $region->code . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
+    /**
+     * Sumber tunggal penerbitan NIP institusi.
+     * Format dipertahankan sama seperti sebelumnya: 2 digit tahun + 2 digit kode
+     * region + 3 digit nomor urut (total 7 digit), supaya NIP yang sudah terbit
+     * tetap punya arti yang sama.
+     */
+    private function issueNipForRegion(?string $regionId, string $regionCode): string
+    {
+        return DB::transaction(function () use ($regionId, $regionCode) {
+            // Baris region dikunci sebagai antrian penerbitan: tanpa ini dua
+            // approval bersamaan di region yang sama membaca nomor urut terakhir
+            // yang identik lalu menghasilkan NIP kembar.
+            if ($regionId) {
+                Region::where('id', $regionId)->lockForUpdate()->first();
+            }
+
+            $prefix = now()->format('y') . $regionCode;
+            // Nomor urut diambil dari nilai tertinggi yang sudah terbit, bukan dari
+            // count(), karena baris yang terhapus membuat count() memakai ulang nomor.
+            $sequence = $this->highestNipSequence($prefix);
+
+            for ($attempt = 0; $attempt < self::NIP_MAX_ATTEMPTS; $attempt++) {
+                $sequence++;
+
+                if ($sequence > 999) {
+                    abort(422, 'Kuota NIP untuk kode wilayah dan tahun ini sudah habis.');
+                }
+
+                $candidate = $prefix . str_pad((string) $sequence, 3, '0', STR_PAD_LEFT);
+
+                if (!$this->isNipUsed($candidate)) {
+                    return $candidate;
+                }
+            }
+
+            abort(500, 'Gagal menerbitkan NIP unik setelah beberapa percobaan, silakan ulangi.');
+        });
+    }
+
+    private function highestNipSequence(string $prefix): int
+    {
+        // Dibaca dua tabel karena NIP tersimpan di pesantren_profiles.nip dan
+        // pesantren_claims.mpj_id_number, dan keduanya harus tetap sinkron.
+        $issued = PesantrenClaim::where('mpj_id_number', 'like', $prefix . '%')
+            ->pluck('mpj_id_number')
+            ->merge(
+                PesantrenProfile::where('nip', 'like', $prefix . '%')->pluck('nip')
+            );
+
+        $highest = 0;
+        $pattern = '/^' . preg_quote($prefix, '/') . '(\d{3})$/';
+
+        foreach ($issued as $value) {
+            if (preg_match($pattern, (string) $value, $matches)) {
+                $highest = max($highest, (int) $matches[1]);
+            }
+        }
+
+        return $highest;
+    }
+
+    private function isNipUsed(string $nip): bool
+    {
+        return PesantrenProfile::where('nip', $nip)->exists()
+            || PesantrenClaim::where('mpj_id_number', $nip)->exists();
     }
 
     private function activatePrimaryCrew(Payment $payment, string $generatedNip): void
@@ -293,10 +405,16 @@ class AdminController extends Controller
         $profile = PesantrenProfile::with('region:id,code')->find($id);
         if (!$profile) return response()->json(['message' => 'Profil tidak ditemukan'], 404);
 
-        $year = now()->format('y');
-        $rr   = $profile->region?->code ?? '00';
-        $seq  = str_pad(random_int(100, 999), 3, '0', STR_PAD_LEFT);
-        $nip  = "{$year}{$rr}{$seq}";
+        // NIP yang sudah terbit tidak boleh ditimpa dengan nomor baru.
+        if ($profile->nip) {
+            $profile->update(['status_account' => 'active', 'status_payment' => 'paid']);
+
+            return response()->json(['success' => true, 'nip' => $profile->nip]);
+        }
+
+        $regionCode = $profile->region?->code;
+        $rr = preg_match('/^\d{2}$/', (string) $regionCode) ? $regionCode : '00';
+        $nip = $this->issueNipForRegion($profile->region_id, $rr);
 
         $profile->update(['status_account' => 'active', 'status_payment' => 'paid', 'nip' => $nip]);
 
@@ -973,33 +1091,68 @@ class AdminController extends Controller
         $data = $request->validate([
             'sourceId' => 'required|uuid',
             'targetId' => 'required|uuid|different:sourceId',
-            'newName' => 'required|string',
-            'newCode' => 'required|string|regex:/^\d{2}$/',
+            'newName'  => 'required|string',
+            'newCode'  => 'required|string|regex:/^\d{2}$/',
+        ], [
+            'sourceId.required'  => 'Regional sumber wajib dipilih',
+            'sourceId.uuid'      => 'ID regional sumber tidak valid',
+            'targetId.required'  => 'Regional tujuan wajib dipilih',
+            'targetId.uuid'      => 'ID regional tujuan tidak valid',
+            'targetId.different' => 'Regional sumber dan tujuan tidak boleh sama',
+            'newName.required'   => 'Nama regional hasil penggabungan wajib diisi',
+            'newCode.required'   => 'Kode regional hasil penggabungan wajib diisi',
+            'newCode.regex'      => 'Kode regional harus 2 digit angka',
         ]);
 
         $source = Region::find($data['sourceId']);
-        $target = Region::find($data['targetId']);
-
-        if (!$source || !$target) {
-            return response()->json(['message' => 'Regional tidak ditemukan'], 404);
+        if (!$source) {
+            return response()->json(['message' => 'Regional sumber tidak ditemukan'], 404);
         }
 
-        if (Region::where('code', $data['newCode'])->whereNotIn('id', [$source->id, $target->id])->exists()) {
+        $target = Region::find($data['targetId']);
+        if (!$target) {
+            return response()->json(['message' => 'Regional tujuan tidak ditemukan'], 404);
+        }
+
+        // Kode milik kedua regional yang digabung dikecualikan: keduanya bebas
+        // dipakai ulang sebagai kode hasil penggabungan.
+        $codeTaken = Region::where('code', $data['newCode'])
+            ->whereNotIn('id', [$source->id, $target->id])
+            ->exists();
+
+        if ($codeTaken) {
             return response()->json(['message' => 'Kode regional sudah digunakan'], 409);
         }
 
+        // Diambil sebelum transaksi karena setelah merge baris sumber terhapus
+        // dan nilai lama target sudah tertimpa.
         $sourceSnapshot = $source->only(['id', 'name', 'code']);
-        $targetBefore = $target->only(['id', 'name', 'code']);
+        $targetBefore   = $target->only(['id', 'name', 'code']);
 
         DB::transaction(function () use ($source, $target, $data) {
-            $sourceRegencyIds = DB::table('region_regencies')
-                ->where('region_id', $source->id)
-                ->pluck('regency_id');
+            foreach (self::REGION_REFERENCE_TABLES as $table) {
+                // Sebagian tabel dibuat bersyarat di migration, jadi keberadaannya
+                // diperiksa dulu agar merge tidak gagal di instalasi lama.
+                if (!Schema::hasTable($table) || !Schema::hasColumn($table, 'region_id')) {
+                    continue;
+                }
 
-            if ($sourceRegencyIds->isNotEmpty()) {
-                DB::table('region_regencies')
+                DB::table($table)
+                    ->where('region_id', $source->id)
+                    ->update(['region_id' => $target->id]);
+            }
+
+            // region_regencies berkunci gabungan (region_id, regency_id):
+            // kabupaten yang sudah terdaftar di regional tujuan harus dibuang,
+            // bukan dipindahkan, supaya update tidak menabrak primary key.
+            if (Schema::hasTable('region_regencies')) {
+                $targetRegencies = DB::table('region_regencies')
                     ->where('region_id', $target->id)
-                    ->whereIn('regency_id', $sourceRegencyIds)
+                    ->pluck('regency_id');
+
+                DB::table('region_regencies')
+                    ->where('region_id', $source->id)
+                    ->whereIn('regency_id', $targetRegencies)
                     ->delete();
 
                 DB::table('region_regencies')
@@ -1007,8 +1160,8 @@ class AdminController extends Controller
                     ->update(['region_id' => $target->id]);
             }
 
-            PesantrenProfile::where('region_id', $source->id)->update(['region_id' => $target->id]);
-
+            // pesantren_profiles sudah ikut dipindahkan lewat REGION_REFERENCE_TABLES
+            // di atas, jadi tidak perlu diperlakukan khusus lagi di sini.
             $target->update([
                 'name' => $data['newName'],
                 'code' => $data['newCode'],
@@ -1237,14 +1390,36 @@ class AdminController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * Toleransi untuk data lama yang terlanjur tersimpan berlapis tanda kutip
+     * akibat json_encode ganda. Hanya string yang benar-benar diawali tanda kutip
+     * yang dikupas, supaya nomor rekening seperti "7171234567890" tidak ikut
+     * berubah menjadi angka.
+     */
+    private function unwrapSettingValue($value)
+    {
+        $guard = 0;
+
+        while (is_string($value) && str_starts_with($value, '"') && $guard < 10) {
+            $decoded = json_decode($value, true);
+            if (!is_string($decoded)) {
+                break;
+            }
+            $value = $decoded;
+            $guard++;
+        }
+
+        return $value;
+    }
+
     public function bankSettings(Request $request)
     {
         $this->assertPusat();
 
         return response()->json([
-            'bankName'          => (string) SystemSetting::getValue('bank_name', ''),
-            'bankAccountNumber' => (string) SystemSetting::getValue('bank_account_number', ''),
-            'bankAccountName'   => (string) SystemSetting::getValue('bank_account_name', ''),
+            'bankName'          => (string) $this->unwrapSettingValue(SystemSetting::getValue('bank_name', '')),
+            'bankAccountNumber' => (string) $this->unwrapSettingValue(SystemSetting::getValue('bank_account_number', '')),
+            'bankAccountName'   => (string) $this->unwrapSettingValue(SystemSetting::getValue('bank_account_name', '')),
         ]);
     }
 
@@ -1266,14 +1441,16 @@ class AdminController extends Controller
 
         DB::transaction(function () use ($updates) {
             foreach ($updates as $key => $item) {
+                // Model SystemSetting sudah punya cast 'value' => 'json',
+                // json_encode manual di sini membuat nilai ter-encode dua kali.
                 $existing = \App\Models\SystemSetting::where('key', $key)->first();
                 if ($existing) {
-                    $existing->update(['value' => json_encode($item['value']), 'description' => $item['desc']]);
+                    $existing->update(['value' => $item['value'], 'description' => $item['desc']]);
                 } else {
                     \App\Models\SystemSetting::create([
                         'id'          => Str::uuid(),
                         'key'         => $key,
-                        'value'       => json_encode($item['value']),
+                        'value'       => $item['value'],
                         'description' => $item['desc'],
                     ]);
                 }
@@ -1666,13 +1843,14 @@ class AdminController extends Controller
                 'free_slot_quantity'      => [$data['freeSlotQuantity'], 'Jumlah slot gratis per pesantren'],
                 'addon_slot_price'        => [$data['addonSlotPrice'], 'Harga add-on per slot kru'],
             ] as $key => [$value, $desc]) {
+                // Cast 'value' => 'json' pada model sudah meng-encode nilainya.
                 $existing = \App\Models\SystemSetting::where('key', $key)->first();
                 if ($existing) {
-                    $existing->update(['value' => json_encode($value)]);
+                    $existing->update(['value' => $value]);
                 } else {
                     \App\Models\SystemSetting::create([
                         'id' => Str::uuid(), 'key' => $key,
-                        'value' => json_encode($value), 'description' => $desc,
+                        'value' => $value, 'description' => $desc,
                     ]);
                 }
             }
@@ -1740,8 +1918,13 @@ class AdminController extends Controller
 
         $payments = Payment::with([
             'claim:id,pesantren_name,nama_pengelola,jenis_pengajuan,region_id,mpj_id_number',
+            // Nama wilayah ikut dimuat supaya klien tidak perlu memetakan sendiri
+            // region_id ke nama; tanpa ini filter dan rekap per wilayah di
+            // dashboard keuangan selalu jatuh ke "Tanpa Regional".
+            'claim.region:id,name',
             'user:id,no_wa_pendaftar,status_account,status_payment,nip,nama_pesantren,nama_pengasuh,region_id',
             'pricingPackage:id,name,category',
+            'user.region:id,name',
             'paymentLogs:id,payment_id',
         ])
             ->when($request->filled('payment_type'), fn($query) => $query->where('payment_type', $request->input('payment_type')))
@@ -1776,6 +1959,7 @@ class AdminController extends Controller
                     'nama_pengelola'  => $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh,
                     'jenis_pengajuan' => $p->claim?->jenis_pengajuan ?? ($p->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION),
                     'region_id'       => $p->claim?->region_id ?? $p->user?->region_id,
+                    'region_name'     => $p->claim?->region?->name ?? $p->user?->region?->name,
                     'mpj_id_number'   => $p->claim?->mpj_id_number ?? $p->user?->nip,
                 ],
                 'profiles' => [
@@ -1795,35 +1979,44 @@ class AdminController extends Controller
 
         $data = $request->validate(['reason' => 'required|string|min:1']);
         $actor = auth()->user();
-        $payment = Payment::find($id);
 
-        if (!$payment) {
-            return response()->json(['message' => 'Payment not found'], 404);
-        }
+        // Tiga operasi tulis (payment, EventRegistration, log) sebelumnya berjalan
+        // di luar transaksi, sehingga kegagalan di tengah menyisakan status yang
+        // sudah berubah tanpa jejak log. Baris dikunci supaya dua request reject
+        // yang bersamaan tidak dua-duanya lolos pengecekan status.
+        DB::transaction(function () use ($id, $data, $actor) {
+            $payment = Payment::whereKey($id)->lockForUpdate()->first();
 
-        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+            if (!$payment) {
+                abort(response()->json(['message' => 'Payment not found'], 404));
+            }
 
-        $payment->update([
-            'status'           => FinanceActivationService::STATUS_REJECTED,
-            'rejection_reason' => $data['reason'],
-            'rejected_by'      => $actor->id,
-            'rejected_at'      => now(),
-        ]);
+            $this->assertPaymentActionable($payment);
 
-        if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_EVENT_REGISTRATION) {
-            EventRegistration::where('id', $payment->reference_id)->update([
-                'ticket_status' => 'rejected',
+            $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+
+            $payment->update([
+                'status'           => FinanceActivationService::STATUS_REJECTED,
+                'rejection_reason' => $data['reason'],
+                'rejected_by'      => $actor->id,
+                'rejected_at'      => now(),
             ]);
-        }
 
-        FinanceActivationService::logPaymentStatusChange(
-            $payment->fresh(),
-            $actor->id,
-            'rejected',
-            $fromStatus,
-            FinanceActivationService::STATUS_REJECTED,
-            $data['reason']
-        );
+            if (($payment->payment_type ?? null) === FinanceActivationService::TYPE_EVENT_REGISTRATION) {
+                EventRegistration::where('id', $payment->reference_id)->update([
+                    'ticket_status' => 'rejected',
+                ]);
+            }
+
+            FinanceActivationService::logPaymentStatusChange(
+                $payment->fresh(),
+                $actor->id,
+                'rejected',
+                $fromStatus,
+                FinanceActivationService::STATUS_REJECTED,
+                $data['reason']
+            );
+        });
 
         AuditLogger::record(
             $actor,
@@ -1856,6 +2049,11 @@ class AdminController extends Controller
                 array_merge(['payment_type' => $payment->payment_type], $meta ?? [])
             );
         };
+
+        // Tanpa ini pembayaran yang sudah rejected, expired, atau cancelled bisa
+        // di-approve dan menerbitkan NIP baru. Penerbitan NIP sendiri sudah
+        // diserialisasi lewat lock baris region di issueNipForRegion().
+        $this->assertPaymentActionable($payment);
 
         if (($payment->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION) === FinanceActivationService::TYPE_CREW_ACTIVATION) {
             $crew = FinanceActivationService::approveCrewActivation($payment, $user);
@@ -2242,13 +2440,26 @@ class AdminController extends Controller
         $pkg = PricingPackage::find($id);
         if (!$pkg) return response()->json(['message' => 'ID tidak valid'], 400);
 
-        $pkg->update(array_filter([
-            'name'         => $data['name'] ?? null,
-            'category'     => $data['category'] ?? null,
-            'harga_paket'  => $data['hargaPaket'] ?? null,
-            'harga_diskon' => $data['hargaDiskon'] ?? null,
-            'is_active'    => $data['isActive'] ?? null,
-        ], fn($v) => $v !== null));
+        $updates = [];
+
+        // Kolom-kolom ini tidak boleh kosong di database, jadi null diperlakukan
+        // sama dengan "tidak dikirim": nilai lama dipertahankan.
+        foreach (['name' => 'name', 'category' => 'category', 'hargaPaket' => 'harga_paket', 'isActive' => 'is_active'] as $input => $column) {
+            if ($request->has($input) && ($data[$input] ?? null) !== null) {
+                $updates[$column] = $data[$input];
+            }
+        }
+
+        // Diskon berbeda: null yang dikirim secara eksplisit berarti diskon
+        // dicabut. Dulu array_filter membuang null tersebut sehingga diskon yang
+        // sudah tersimpan tidak pernah bisa dihapus lewat API.
+        if ($request->exists('hargaDiskon')) {
+            $updates['harga_diskon'] = $data['hargaDiskon'] ?? null;
+        }
+
+        if ($updates) {
+            $pkg->update($updates);
+        }
 
         AuditLogger::record(
             auth()->user(),
@@ -2297,7 +2508,9 @@ class AdminController extends Controller
                 FinanceActivationService::STATUS_WAITING_VERIFICATION,
             ])->count(),
             'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
-            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('updated_at', today())->count(),
+            // rejected_at, bukan updated_at: perubahan apa pun pada baris hari ini
+            // sebelumnya ikut terhitung sebagai penolakan hari ini.
+            'rejected_today'       => Payment::where('status', 'rejected')->whereDate('rejected_at', today())->count(),
         ]);
     }
 }

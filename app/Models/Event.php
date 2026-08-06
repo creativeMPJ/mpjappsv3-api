@@ -40,6 +40,8 @@ class Event extends Model
         'speaker_id',
         'gdrive_lpj',
         'created_by',
+        // NULL berarti event nasional; diisi saat dibuat lewat jalur regional.
+        'region_id',
         'certificate_enabled',
     ];
 

@@ -61,6 +61,17 @@ class AccessControl
         'regional-data' => ['data-master'],
         'finance' => ['finance-dashboard'],
         'finance-dashboard' => ['finance'],
+
+        // Menu keuangan di frontend memakai aksesKey payment, kas, dan
+        // master-keuangan, sedangkan seeder lama memakai verifikasi, clearing,
+        // dan harga. Alias dua arah ini membuat role yang sudah tersimpan dengan
+        // nama lama tetap dikenali setelah penyelarasan nama key, dan sebaliknya.
+        'verifikasi' => ['payment'],
+        'payment' => ['verifikasi'],
+        'clearing' => ['kas'],
+        'kas' => ['clearing'],
+        'harga' => ['master-keuangan'],
+        'master-keuangan' => ['harga'],
     ];
 
     public static function has(User $user, string $key, string $action = 'view'): bool

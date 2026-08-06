@@ -16,6 +16,10 @@ use Illuminate\Support\Facades\Route;
 // ── Health check ─────────────────────────────────────────────────────
 Route::get('/health', fn() => response()->json(['status' => 'ok', 'timestamp' => now()]));
 
+// Catatan: kedua endpoint di bawah dikurung environment local/testing sehingga
+// tidak terjangkau di production. Keduanya tetap tanpa autentikasi, jadi jangan
+// sampai APP_ENV di server salah setel — migrate:fresh dan truncate seluruh
+// tabel bisa dipanggil lewat HTTP.
 if (app()->environment(['local', 'testing'])) {
     // ── Local-only Artisan runner (deploy helper) ─────────────────────
     Route::post('/artisan', function (\Illuminate\Http\Request $request) {
@@ -66,9 +70,9 @@ if (app()->environment(['local', 'testing'])) {
 
 // ── Auth ──────────────────────────────────────────────────────────────
 Route::prefix('auth')->group(function () {
-    Route::post('/register',        [AuthController::class, 'register']);
-    Route::post('/login',           [AuthController::class, 'login']);
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/register',        [AuthController::class, 'register'])->middleware('throttle:10,1');
+    Route::post('/login',           [AuthController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
 
     Route::middleware('auth:api')->group(function () {
         Route::get('/me',              [AuthController::class, 'me']);
@@ -176,6 +180,10 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/download-center',                    [RegionalController::class, 'downloadCenter'])->middleware('access:download-center');
         Route::get('/militansi/overview',                 [RegionalController::class, 'militansiOverview'])->middleware('access:militansi');
     });
+
+    // ── MPJ Hub & Militansi XP (semua user login) ─────────────────────
+    Route::get('/hub/resources',      [AdminController::class, 'hubResources']);
+    Route::get('/militansi/overview', [AdminController::class, 'myMilitansiOverview']);
 
     // ── Admin pusat ───────────────────────────────────────────────────
     Route::prefix('admin')->group(function () {
@@ -296,6 +304,14 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/',                        [EventController::class, 'index']);
         Route::post('/',                       [EventController::class, 'store'])->middleware('access:admin-pusat-manajemen-event,create');
         Route::get('/{id}',                    [EventController::class, 'show']);
+
+        // Kelola event nasional (Admin Pusat). Sebelumnya hanya ada index dan
+        // store, sehingga halaman Master Event tidak punya cara mengubah,
+        // mengganti status, atau menghapus event.
+        Route::put('/{id}',                    [EventController::class, 'update'])->middleware('access:admin-pusat-manajemen-event,update');
+        Route::patch('/{id}/status',           [EventController::class, 'changeStatus'])->middleware('access:admin-pusat-manajemen-event,update');
+        Route::delete('/{id}',                 [EventController::class, 'destroy'])->middleware('access:admin-pusat-manajemen-event,delete');
+
         Route::post('/{id}/speakers',          [EventController::class, 'addSpeaker'])->middleware('access:admin-pusat-manajemen-event,update');
         Route::delete('/{id}/speakers/{speakerId}', [EventController::class, 'deleteSpeaker'])->middleware('access:admin-pusat-manajemen-event,delete');
         Route::get('/{id}/participants',       [EventController::class, 'participants'])->middleware('access:admin-pusat-manajemen-event');

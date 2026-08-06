@@ -17,6 +17,7 @@ use App\Support\AuditLogger;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class EventController extends Controller
 {
@@ -122,6 +123,33 @@ class EventController extends Controller
         } while (EventRegistration::where('ticket_code', $ticketCode)->exists());
 
         return $ticketCode;
+    }
+
+    private function assertPusat(): void
+    {
+        $user = auth()->user();
+        $role = $user?->activeRole();
+
+        if (!$role || $role->nama !== 'Admin Pusat') {
+            abort(403, 'Forbidden');
+        }
+    }
+
+    /**
+     * Panitia event: Admin Pusat, Admin Regional, dan Koordinator. Dipakai untuk
+     * endpoint yang membuka data peserta (nomor HP dan email) atau mengubah
+     * status kehadiran. Tanpa ini user mana pun yang login bisa menarik kontak
+     * seluruh peserta dan menandai tiket orang lain sebagai hadir, yang membuat
+     * tiket korban tidak bisa dipakai lagi.
+     */
+    private function assertPanitia(): void
+    {
+        $role = auth()->user()?->activeRole();
+        $allowed = ['Admin Pusat', 'Admin Regional', 'Koordinator'];
+
+        if (!$role || !in_array($role->nama, $allowed, true)) {
+            abort(403, 'Forbidden');
+        }
     }
 
     private function assertRegional()
@@ -242,6 +270,9 @@ class EventController extends Controller
 
     public function store(Request $request)
     {
+        // Event lewat endpoint ini bersifat global (lintas wilayah), jadi hanya Admin Pusat.
+        $this->assertPusat();
+
         $data = $request->validate([
             'name'        => 'required|string',
             'description' => 'nullable|string',
@@ -284,6 +315,89 @@ class EventController extends Controller
         return response()->json($event->load('speakers'));
     }
 
+    /**
+     * Catatan: ada dua kosakata status event di codebase ini. EventController
+     * memakai huruf kecil ('upcoming' pada store dan regionalStore), sedangkan
+     * ApiEventCompatController memakai huruf besar lewat konstanta
+     * EVENT_STATUSES. Keduanya sengaja tidak disatukan di sini agar tidak
+     * mengubah perilaku endpoint compat yang sudah dipakai; yang dipakai di
+     * bawah adalah kosakata milik controller ini.
+     */
+    private const STATUSES = ['upcoming', 'ongoing', 'completed', 'cancelled'];
+
+    public function update(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'name'        => 'sometimes|required|string',
+            'description' => 'nullable|string',
+            'date'        => 'sometimes|required|date',
+            'location'    => 'nullable|string',
+            'status'      => ['sometimes', 'required', Rule::in(self::STATUSES)],
+            'member_price' => 'nullable|integer|min:0',
+            'public_price' => 'nullable|integer|min:0',
+            'certificate_enabled' => 'nullable|boolean',
+        ]);
+
+        $event = Event::find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event tidak ditemukan'], 404);
+        }
+
+        // Field yang tidak dikirim tidak diubah. Field yang dikirim bernilai null
+        // tetap diterapkan supaya deskripsi atau lokasi bisa dikosongkan.
+        $event->update($data);
+
+        return response()->json(['success' => true, 'event' => $event->fresh()]);
+    }
+
+    public function changeStatus(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $data = $request->validate([
+            'status' => ['required', Rule::in(self::STATUSES)],
+        ]);
+
+        $event = Event::find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event tidak ditemukan'], 404);
+        }
+
+        $event->update(['status' => $data['status']]);
+
+        return response()->json(['success' => true, 'status' => $event->status]);
+    }
+
+    public function destroy(Request $request, string $id)
+    {
+        $this->assertPusat();
+
+        $event = Event::find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event tidak ditemukan'], 404);
+        }
+
+        // Menghapus event yang sudah punya peserta atau laporan akan melanggar
+        // foreign key atau meninggalkan data yatim. Lebih baik ditolak dengan
+        // alasan yang jelas daripada dihapus paksa.
+        $registrationCount = EventRegistration::where('event_id', $event->id)->count();
+        $reportCount       = EventReport::where('event_id', $event->id)->count();
+
+        if ($registrationCount > 0 || $reportCount > 0) {
+            return response()->json([
+                'message' => "Event tidak bisa dihapus karena sudah punya {$registrationCount} pendaftar dan {$reportCount} laporan. Ubah statusnya menjadi cancelled bila ingin menonaktifkan.",
+                'registrations' => $registrationCount,
+                'reports'       => $reportCount,
+            ], 409);
+        }
+
+        $event->delete();
+
+        return response()->json(['success' => true]);
+    }
+
     public function reports(Request $request, string $id)
     {
         $event = Event::find($id);
@@ -304,6 +418,8 @@ class EventController extends Controller
 
     public function submitReport(Request $request, string $id)
     {
+        $regionId = $this->assertRegional();
+
         $data = $request->validate([
             'regionId'          => 'required|string',
             'participationCount' => 'required|integer|min:0',
@@ -311,7 +427,13 @@ class EventController extends Controller
             'photoUrl'          => 'nullable|string',
         ]);
 
-        $existing = EventReport::where('event_id', $id)->where('region_id', $data['regionId'])->first();
+        // regionId dari body tidak dipercaya: tanpa cek ini admin wilayah A
+        // bisa menimpa laporan wilayah B.
+        if ($data['regionId'] !== $regionId) {
+            return response()->json(['message' => 'Anda hanya boleh mengirim laporan untuk wilayah sendiri'], 403);
+        }
+
+        $existing = EventReport::where('event_id', $id)->where('region_id', $regionId)->first();
 
         if ($existing) {
             $existing->update([
@@ -326,7 +448,7 @@ class EventController extends Controller
         $report = EventReport::create([
             'id'                  => Str::uuid(),
             'event_id'            => $id,
-            'region_id'           => $data['regionId'],
+            'region_id'           => $regionId,
             'participation_count' => $data['participationCount'],
             'notes'               => $data['notes'] ?? null,
             'photo_url'           => $data['photoUrl'] ?? null,
@@ -341,7 +463,12 @@ class EventController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        $events = Event::with('speakers')->orderBy('date', 'desc')->get();
+        // Sebelumnya semua wilayah melihat daftar yang sama persis. Event dengan
+        // region_id NULL adalah event nasional dan tetap terlihat oleh semua.
+        $events = Event::with('speakers')
+            ->where(fn($query) => $query->whereNull('region_id')->orWhere('region_id', $regionId))
+            ->orderBy('date', 'desc')
+            ->get();
 
         $myReports = EventReport::where('region_id', $regionId)
             ->get(['id', 'event_id', 'participation_count', 'notes', 'submitted_at'])
@@ -372,7 +499,7 @@ class EventController extends Controller
 
     public function regionalStore(Request $request)
     {
-        $this->assertRegional();
+        $regionId = $this->assertRegional();
 
         $data = $request->validate([
             'name'        => 'required|string',
@@ -393,10 +520,14 @@ class EventController extends Controller
         $speakers = $data['speakers'] ?? [];
         unset($data['speakers']);
 
+        // region_id menandai event ini milik wilayah pembuatnya, dan menjadi
+        // dasar pengecekan kepemilikan di regionalUpdate.
         $event = Event::create(array_merge(['id' => Str::uuid(), 'status' => 'upcoming'], $data, [
             'member_price' => $data['member_price'] ?? FinanceActivationService::getEventMemberPrice(),
             'public_price' => $data['public_price'] ?? FinanceActivationService::getEventPublicPrice(),
             'certificate_enabled' => $data['certificate_enabled'] ?? true,
+            'created_by' => auth()->id(),
+            'region_id'  => $regionId,
         ]));
 
         $this->createSpeakers($event, $speakers);
@@ -416,7 +547,7 @@ class EventController extends Controller
 
     public function regionalUpdate(Request $request, string $id)
     {
-        $this->assertRegional();
+        $regionId = $this->assertRegional();
 
         $data = $request->validate([
             'name'        => 'nullable|string',
@@ -431,6 +562,13 @@ class EventController extends Controller
 
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'ID tidak valid'], 400);
+
+        // Event nasional (region_id NULL) hanya boleh diubah Admin Pusat lewat
+        // jalur lain. Pesan disamakan dengan kasus "tidak ditemukan" agar tidak
+        // membocorkan keberadaan event milik wilayah lain.
+        if ($event->region_id !== $regionId) {
+            return response()->json(['message' => 'ID tidak valid'], 400);
+        }
 
         $before = $event->only(['name', 'description', 'date', 'location', 'status', 'member_price', 'public_price', 'certificate_enabled']);
         $event->update(array_filter($data, fn($v) => $v !== null));
@@ -503,6 +641,8 @@ class EventController extends Controller
 
     public function participants(Request $request, string $id)
     {
+        $this->assertPanitia();
+
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'Event not found'], 404);
 
@@ -685,6 +825,10 @@ class EventController extends Controller
 
     public function checkTicket(Request $request, string $id)
     {
+        // Endpoint scanner panitia: mengembalikan identitas pemilik tiket, jadi
+        // tidak boleh bisa dipakai sembarang user untuk menebak kode tiket.
+        $this->assertPanitia();
+
         $ticketCode = $request->validate([
             'ticketCode' => 'required|string',
         ])['ticketCode'];
@@ -724,6 +868,8 @@ class EventController extends Controller
 
     public function checkIn(Request $request, string $id)
     {
+        $this->assertPanitia();
+
         $user = auth()->user();
         $ticketCode = $request->validate([
             'ticketCode' => 'required|string',

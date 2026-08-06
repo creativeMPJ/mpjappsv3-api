@@ -86,14 +86,25 @@ class EventRegistrationController extends Controller
      */
     public function show(string $id)
     {
+        // Kolom `nama` dan `status` tidak pernah dibuat di migration —
+        // yang ada adalah participant_name dan ticket_status.
         $reg = EventRegistration::with('event:id,name,date,location')
-            ->select('id', 'event_id', 'nama', 'status', 'created_at')
+            ->select('id', 'event_id', 'participant_name', 'ticket_status', 'created_at')
             ->find($id);
 
         if (!$reg) {
             return response()->json(['message' => 'Pendaftaran tidak ditemukan'], 404);
         }
 
-        return response()->json(['registration' => $reg]);
+        return response()->json([
+            'registration' => [
+                'id'         => $reg->id,
+                'event_id'   => $reg->event_id,
+                'nama'       => $reg->participant_name,
+                'status'     => $reg->ticket_status,
+                'created_at' => $reg->created_at,
+                'event'      => $reg->event,
+            ],
+        ]);
     }
 }

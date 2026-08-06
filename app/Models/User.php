@@ -29,6 +29,19 @@ class User extends Authenticatable implements JWTSubject
 
     public function activeRole(): ?Role
     {
+        // Memanggil builder relasi ($this->userRoles()->...) SELALU mengirim query
+        // baru dan mengabaikan hasil eager load, sehingga pemanggil yang sudah
+        // melakukan with(['user.userRoles.roleDetail']) tetap memicu satu query per
+        // baris. Kalau relasinya sudah dimuat, urutkan saja di memori.
+        if ($this->relationLoaded('userRoles')) {
+            // sortByDesc memakai uasort yang stabil di PHP 8, jadi semantiknya sama
+            // dengan orderBy('created_at', 'desc'): baris terbaru menang, dan saat
+            // created_at seri urutan asli dari database yang dipakai.
+            return $this->userRoles
+                ->sortByDesc('created_at')
+                ->first()?->roleDetail;
+        }
+
         return $this->userRoles()
             ->with('roleDetail')
             ->orderBy('created_at', 'desc')

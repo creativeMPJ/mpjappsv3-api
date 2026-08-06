@@ -16,9 +16,14 @@ class InstitutionController extends Controller
     {
         $user  = auth()->user();
 
-        $claim = PesantrenClaim::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        // pesantren_claims.user_id menyimpan id PROFIL, bukan id user.
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        $claim = $profile
+            ? PesantrenClaim::where('user_id', $profile->id)
+                ->orderBy('created_at', 'desc')
+                ->first()
+            : null;
 
         if (!$claim) return response()->json(['claim' => null]);
 

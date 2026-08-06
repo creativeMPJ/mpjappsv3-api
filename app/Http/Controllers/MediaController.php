@@ -132,7 +132,23 @@ class MediaController extends Controller
             }
         }
 
-        $result = DB::transaction(function () use ($data, $profile, $jabatanName, $user, $usesAddonSlot) {
+        $result = DB::transaction(function () use ($data, $profile, $jabatanName, $user, $usesAddonSlot, $totalSlotQuantity) {
+            // Pengecekan di atas hanya untuk pesan yang informatif; dua request
+            // bersamaan bisa sama-sama melewatinya. Di sini dihitung ulang sambil
+            // mengunci baris supaya batas slot benar-benar tidak bisa ditembus.
+            // Baris profil ikut dikunci karena saat belum ada kru sama sekali,
+            // tidak ada baris crew yang bisa dijadikan titik kunci.
+            PesantrenProfile::whereKey($profile->id)->lockForUpdate()->first();
+
+            $lockedCount = Crew::where('profile_id', $profile->id)
+                ->whereIn('status', ['active', 'pending'])
+                ->lockForUpdate()
+                ->count();
+
+            if ($lockedCount >= $totalSlotQuantity) {
+                return null;
+            }
+
             // 1. Buat akun login untuk crew
             $crewUser = User::create([
                 'id'            => Str::uuid(),
@@ -179,6 +195,14 @@ class MediaController extends Controller
 
             return [$crew, $invoice];
         });
+
+        // null berarti pengecekan berkunci di dalam transaksi menolak: ada request
+        // lain yang lebih dulu memakai sisa slot.
+        if (!$result) {
+            return response()->json([
+                'message' => "Slot kru sudah penuh ({$totalSlotQuantity}/{$totalSlotQuantity}). Ajukan pembelian slot tambahan terlebih dahulu.",
+            ], 403);
+        }
 
         [$crew, $invoice] = $result;
         $result = $crew;
@@ -258,6 +282,12 @@ class MediaController extends Controller
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
         $crew    = Crew::where('id', $id)->where('profile_id', $profile?->id)->first();
         if (!$crew) return response()->json(['message' => 'Kru tidak ditemukan'], 404);
+
+        if ($crew->is_pic) {
+            return response()->json([
+                'message' => 'Kru ini adalah PIC pesantren dan tidak dapat dihapus. Tunjuk PIC lain terlebih dahulu.',
+            ], 403);
+        }
 
         $crew->delete();
         return response()->json(['success' => true]);
@@ -420,11 +450,17 @@ class MediaController extends Controller
 
     public function profileSettings(Request $request)
     {
-        $user  = auth()->user();
-        $claim = PesantrenClaim::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->select('nama_pengelola')
-            ->first();
+        $user = auth()->user();
+
+        // pesantren_claims.user_id menyimpan id PROFIL, bukan id user.
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+
+        $claim = $profile
+            ? PesantrenClaim::where('user_id', $profile->id)
+                ->orderBy('created_at', 'desc')
+                ->select('nama_pengelola')
+                ->first()
+            : null;
 
         $linkedCrew = ($user->reff_type === 'crew' && $user->reff_id)
             ? Crew::find($user->reff_id)
