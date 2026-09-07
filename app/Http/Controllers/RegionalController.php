@@ -174,6 +174,18 @@ class RegionalController extends Controller
             'claims'
         );
 
+        // Nomor WA pendaftar dulu hanya tersimpan di kru PIC yang dibuat saat
+        // registrasi, bukan di profil, sehingga kolom profil kosong untuk hampir
+        // semua pendaftar lama. pesantren_claims.user_id berisi id profil.
+        $picPhones = Crew::whereIn('profile_id', $claims->pluck('user_id')->filter()->values())
+            ->whereNotNull('no_wa')
+            ->where('no_wa', '!=', '')
+            ->orderByDesc('is_pic')
+            ->orderBy('created_at')
+            ->get(['profile_id', 'no_wa'])
+            ->groupBy('profile_id')
+            ->map(fn($group) => $group->first()->no_wa);
+
         $verificationLogs = AuditLog::where('target_type', 'pesantren_claim')
             ->whereIn('target_id', $claims->pluck('id')->filter()->values())
             ->orderBy('created_at')
@@ -199,9 +211,13 @@ class RegionalController extends Controller
                 'jenis_pengajuan'  => $c->jenis_pengajuan,
                 'nama_pengasuh'    => $c->profile?->nama_pengasuh,
                 'alamat_singkat'   => $c->profile?->alamat_singkat,
-                'no_wa_pendaftar'  => $c->profile?->no_wa_pendaftar,
+                'no_wa_pendaftar'  => $c->profile?->no_wa_pendaftar ?: $picPhones->get($c->user_id),
                 'is_alumni'        => $c->profile?->is_alumni,
-                'alamat_lengkap'   => $c->profile?->alamat_lengkap,
+                // Kolom alamat_lengkap dan kecamatan pada profil baru mulai diisi
+                // saat pengajuan dibuat. Pendaftar yang mendaftar sebelum itu hanya
+                // punya alamat_singkat dan kecamatan di baris klaim, sehingga tanpa
+                // cadangan ini detail validasi tampil "-" untuk hampir semua data.
+                'alamat_lengkap'   => $c->profile?->alamat_lengkap ?: $c->profile?->alamat_singkat,
                 'desa'             => $c->profile?->desa,
                 'kode_pos'         => $c->profile?->kode_pos,
                 'maps_link'        => $c->profile?->maps_link,
@@ -217,7 +233,7 @@ class RegionalController extends Controller
                 'youtube'          => $c->profile?->youtube,
                 'tiktok'           => $c->profile?->tiktok,
                 'jenjang_pendidikan' => $c->profile?->jenjang_pendidikan,
-                'kecamatan_profile'  => $c->profile?->kecamatan,
+                'kecamatan_profile'  => $c->profile?->kecamatan ?: $c->kecamatan,
                 'verification_logs'   => ($verificationLogs->get($c->id) ?? collect())->map(fn($log) => [
                     'id'         => $log->id,
                     'action'     => $log->action,
