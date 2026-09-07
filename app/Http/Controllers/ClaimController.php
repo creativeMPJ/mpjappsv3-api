@@ -95,7 +95,6 @@ class ClaimController extends Controller
                 }
             })
             ->when($role === 'Admin Regional', fn($query) => $query->where('region_id', $profile->region_id))
-            ->whereNotIn('status', ['approved', 'pusat_approved'])
             ->orderBy('created_at', 'desc')
             ->take(10)
             ->get();
@@ -129,6 +128,12 @@ class ClaimController extends Controller
         $claim = PesantrenClaim::find($data['claimId']);
 
         if (!$claim) return response()->json(['message' => 'Claim tidak ditemukan'], 404);
+
+        if (in_array($claim->status, ['approved', 'pusat_approved'], true)) {
+            return response()->json([
+                'message' => 'Pesantren ini sudah diklaim dan tidak bisa diklaim ulang.',
+            ], 409);
+        }
 
         // pesantren_claims.user_id stores pesantren_profiles.id in this schema.
         $profile = PesantrenProfile::find($claim->user_id);

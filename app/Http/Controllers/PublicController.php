@@ -195,6 +195,12 @@ class PublicController extends Controller
         }
 
         $results = $query->orderBy('nama_pesantren')->take(100)->get();
+        $directoryIds = $results->pluck('id')->filter()->values();
+        $claimedDirectoryIds = PesantrenClaim::whereIn('pesantren_directory_id', $directoryIds)
+            ->whereIn('status', ['pending', 'regional_approved', 'approved', 'pusat_approved'])
+            ->pluck('pesantren_directory_id')
+            ->filter()
+            ->flip();
 
         return response()->json([
             'data' => $results->map(fn($p) => [
@@ -209,7 +215,7 @@ class PublicController extends Controller
                 'email_admin'     => $p->email_admin,
                 'maps_link'       => $p->maps_link,
                 'kode_regional'   => $p->kode_regional,
-                'is_claimed'      => $p->is_claimed,
+                'is_claimed'      => (bool) $p->is_claimed || $claimedDirectoryIds->has($p->id),
                 'source_year'     => $p->source_year,
                 'region'          => $p->region ? ['id' => $p->region->id, 'name' => $p->region->name, 'code' => $p->region->code] : null,
             ]),
@@ -239,7 +245,9 @@ class PublicController extends Controller
                 "email_admin"     => $pesantren->email_admin,
                 "maps_link"       => $pesantren->maps_link,
                 "kode_regional"   => $pesantren->kode_regional,
-                "is_claimed"      => $pesantren->is_claimed,
+                "is_claimed"      => (bool) $pesantren->is_claimed || PesantrenClaim::where('pesantren_directory_id', $pesantren->id)
+                    ->whereIn('status', ['pending', 'regional_approved', 'approved', 'pusat_approved'])
+                    ->exists(),
                 "source_year"     => $pesantren->source_year,
                 "region"          => $pesantren->region ? [
                     "id" => $pesantren->region->id,

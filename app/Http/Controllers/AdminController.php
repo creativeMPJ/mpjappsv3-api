@@ -1932,6 +1932,17 @@ class AdminController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
+        // Invoice aktivasi crew tidak selalu punya claim sendiri. Nama pemohon
+        // harus diambil dari crew pada reference_id, bukan dari pengelola claim
+        // pesantren (yang dapat berupa pemilik akun utama).
+        $crewNames = Crew::whereIn(
+            'id',
+            $payments
+                ->where('payment_type', FinanceActivationService::TYPE_CREW_ACTIVATION)
+                ->pluck('reference_id')
+                ->filter()
+        )->pluck('nama', 'id');
+
         return response()->json([
             'payments' => $payments->map(fn($p) => [
                 'id'                  => $p->id,
@@ -1956,7 +1967,9 @@ class AdminController extends Controller
                 'pricing_package_category' => $p->pricingPackage?->category,
                 'pesantren_claims'    => [
                     'pesantren_name'  => $p->claim?->pesantren_name ?? $p->user?->nama_pesantren,
-                    'nama_pengelola'  => $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh,
+                    'nama_pengelola'  => $p->payment_type === FinanceActivationService::TYPE_CREW_ACTIVATION
+                        ? ($crewNames->get($p->reference_id) ?? $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh)
+                        : ($p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh),
                     'jenis_pengajuan' => $p->claim?->jenis_pengajuan ?? ($p->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION),
                     'region_id'       => $p->claim?->region_id ?? $p->user?->region_id,
                     'region_name'     => $p->claim?->region?->name ?? $p->user?->region?->name,
@@ -1984,7 +1997,7 @@ class AdminController extends Controller
         // di luar transaksi, sehingga kegagalan di tengah menyisakan status yang
         // sudah berubah tanpa jejak log. Baris dikunci supaya dua request reject
         // yang bersamaan tidak dua-duanya lolos pengecekan status.
-        DB::transaction(function () use ($id, $data, $actor) {
+        $payment = DB::transaction(function () use ($id, $data, $actor) {
             $payment = Payment::whereKey($id)->lockForUpdate()->first();
 
             if (!$payment) {
@@ -2016,6 +2029,8 @@ class AdminController extends Controller
                 FinanceActivationService::STATUS_REJECTED,
                 $data['reason']
             );
+
+            return $payment->fresh();
         });
 
         AuditLogger::record(

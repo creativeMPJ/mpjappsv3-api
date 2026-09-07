@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Crew;
+use App\Models\AuditLog;
 use App\Models\FollowUpLog;
 use App\Support\FinanceActivationService;
 use App\Models\HubResource;
@@ -15,6 +16,7 @@ use App\Models\PesantrenProfile;
 use App\Models\RegionalReport;
 use App\Models\Region;
 use App\Support\AccessControl;
+use App\Support\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -124,6 +126,38 @@ class RegionalController extends Controller
         ]);
     }
 
+    /**
+     * Keluarkan akun pesantren dari daftar regional tanpa menghapus histori
+     * klaim, pembayaran, atau kru yang sudah tercatat. Akun dapat dipetakan
+     * kembali oleh admin pusat bila diperlukan.
+     */
+    public function removeProfile(Request $request, string $id)
+    {
+        $regionId = $this->assertRegional();
+
+        DB::transaction(function () use ($id, $regionId) {
+            $profile = PesantrenProfile::whereKey($id)
+                ->where('region_id', $regionId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$profile) {
+                abort(response()->json(['message' => 'Akun pesantren tidak ditemukan di regional ini.'], 404));
+            }
+
+            // Detach dari regional, jangan hard-delete data operasional.
+            $profile->update(['region_id' => null]);
+            PesantrenClaim::where('user_id', $profile->id)
+                ->where('region_id', $regionId)
+                ->update(['region_id' => null]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Akun pesantren dikeluarkan dari regional.',
+        ]);
+    }
+
     public function pendingClaims(Request $request)
     {
         $regionId = $this->assertRegional();
@@ -131,11 +165,20 @@ class RegionalController extends Controller
         [$claims, $claimsMeta] = $this->paginateList(
             PesantrenClaim::with('profile')
                 ->where('region_id', $regionId)
-                ->where('status', 'pending')
+                ->when(
+                    $request->query('status', 'pending') !== 'all',
+                    fn($query) => $query->where('status', $request->query('status', 'pending'))
+                )
                 ->orderBy('created_at', 'desc'),
             $request,
             'claims'
         );
+
+        $verificationLogs = AuditLog::where('target_type', 'pesantren_claim')
+            ->whereIn('target_id', $claims->pluck('id')->filter()->values())
+            ->orderBy('created_at')
+            ->get()
+            ->groupBy('target_id');
 
         return response()->json([
             'pagination' => ['claims' => $claimsMeta],
@@ -151,6 +194,7 @@ class RegionalController extends Controller
                 'dokumen_bukti_url'=> $c->dokumen_bukti_url,
                 'notes'            => $c->notes,
                 'claimed_at'       => $c->claimed_at,
+                'regional_approved_at' => $c->regional_approved_at,
                 'created_at'       => $c->created_at,
                 'jenis_pengajuan'  => $c->jenis_pengajuan,
                 'nama_pengasuh'    => $c->profile?->nama_pengasuh,
@@ -174,6 +218,14 @@ class RegionalController extends Controller
                 'tiktok'           => $c->profile?->tiktok,
                 'jenjang_pendidikan' => $c->profile?->jenjang_pendidikan,
                 'kecamatan_profile'  => $c->profile?->kecamatan,
+                'verification_logs'   => ($verificationLogs->get($c->id) ?? collect())->map(fn($log) => [
+                    'id'         => $log->id,
+                    'action'     => $log->action,
+                    'actor_role' => $log->actor_role,
+                    'details'    => $log->details,
+                    'meta'       => $log->meta,
+                    'created_at' => $log->created_at,
+                ])->values(),
             ]),
         ]);
     }
@@ -260,6 +312,20 @@ class RegionalController extends Controller
                 'notes'                => null,
             ]);
 
+            AuditLogger::record(
+                auth()->user(),
+                'regional_claim_approved',
+                'pesantren_claim',
+                $claim->id,
+                $claim->pesantren_name,
+                'Pengajuan disetujui oleh regional.',
+                [
+                    'region_id' => $regionId,
+                    'jenis_pengajuan' => $claim->jenis_pengajuan,
+                    'pricing_package_id' => $pricingPackage?->id,
+                ]
+            );
+
             if ($claim->jenis_pengajuan === 'klaim') {
                 PesantrenProfile::where('id', $claim->user_id)->update([
                     'status_account' => 'active',
@@ -306,6 +372,19 @@ class RegionalController extends Controller
                 'status' => 'rejected',
                 'notes'  => $data['reason'],
             ]);
+
+            AuditLogger::record(
+                auth()->user(),
+                'regional_claim_rejected',
+                'pesantren_claim',
+                $claim->id,
+                $claim->pesantren_name,
+                'Pengajuan ditolak oleh regional.',
+                [
+                    'region_id' => $regionId,
+                    'reason' => $data['reason'],
+                ]
+            );
 
             PesantrenProfile::where('id', $claim->user_id)->update(['status_account' => 'rejected']);
         });

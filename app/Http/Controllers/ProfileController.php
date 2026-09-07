@@ -89,6 +89,7 @@ class ProfileController extends Controller
                 'tahunBerdiri'      => $profile->tahun_berdiri,
                 'latitude'          => $profile->latitude,
                 'longitude'         => $profile->longitude,
+                'mapsLink'          => $profile->maps_link,
 
                 'visiMisi'          => $profile->visi_misi,
                 'sejarahSingkat'    => $profile->sejarah,
@@ -146,8 +147,7 @@ class ProfileController extends Controller
                 'dawuhPengasuh'=> 'nullable|string',
                 'jumlahSantri' => 'nullable|integer',
                 'tahunBerdiri' => 'nullable|integer',
-                'latitude'     => 'nullable|string',
-                'longitude'    => 'nullable|string',
+                'mapsLink'     => 'nullable|string',
             ]);
 
             $profile->update([
@@ -159,8 +159,7 @@ class ProfileController extends Controller
                 'dawuh_pengasuh'=> $data['dawuhPengasuh']?? $profile->dawuh_pengasuh,
                 'jumlah_santri' => $data['jumlahSantri'] ?? $profile->jumlah_santri,
                 'tahun_berdiri' => $data['tahunBerdiri'] ?? $profile->tahun_berdiri,
-                'latitude'      => $data['latitude']     ?? $profile->latitude,
-                'longitude'     => $data['longitude']    ?? $profile->longitude,
+                'maps_link'     => $data['mapsLink']     ?? $profile->maps_link,
             ]);
 
             // Upgrade Gold diproses melalui invoice paket Finance dan approval pembayaran.

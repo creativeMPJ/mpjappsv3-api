@@ -166,6 +166,7 @@ Route::middleware('auth:api')->group(function () {
     // ── Regional admin ────────────────────────────────────────────────
     Route::prefix('regional')->group(function () {
         Route::get('/master-data',                        [RegionalController::class, 'masterData'])->middleware('access:data-master');
+        Route::delete('/master-data/profiles/{id}',       [RegionalController::class, 'removeProfile'])->middleware('access:data-master,delete');
         Route::get('/pending-claims',                     [RegionalController::class, 'pendingClaims'])->middleware('access:validasi-pendaftar');
         Route::get('/pricing-packages',                   [RegionalController::class, 'pricingPackages'])->middleware('access:validasi-pendaftar');
         Route::post('/claims/{id}/approve',               [RegionalController::class, 'approveClaim'])->middleware('access:validasi-pendaftar,update');

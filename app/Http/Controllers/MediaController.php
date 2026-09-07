@@ -188,8 +188,18 @@ class MediaController extends Controller
 
             $invoice = FinanceActivationService::ensureCrewActivationInvoice($profile, $crew, $user);
             $invoice->update([
+                'base_amount' => $usesAddonSlot ? $invoice->base_amount : 0,
+                'unique_code' => $usesAddonSlot ? $invoice->unique_code : 0,
+                'total_amount' => $usesAddonSlot ? $invoice->total_amount : 0,
+                'status' => $usesAddonSlot
+                    ? $invoice->status
+                    : FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                'submitted_at' => $usesAddonSlot ? $invoice->submitted_at : now(),
                 'meta' => array_merge($invoice->meta ?? [], [
                     'slot_type' => $usesAddonSlot ? 'addon' : 'free',
+                    'verification_note' => $usesAddonSlot
+                        ? null
+                        : 'Free slot Golden 3: tanpa invoice pembayaran, cukup verifikasi finance.',
                 ]),
             ]);
 
@@ -338,7 +348,9 @@ class MediaController extends Controller
             : null;
 
         $koordinator = Crew::where('profile_id', $profile?->id)
-            ->where('jabatan', 'Koordinator')
+            ->orderByDesc('is_pic')
+            ->orderByRaw("CASE WHEN LOWER(COALESCE(jabatan, '')) IN ('koordinator', 'ketua', 'khodim') THEN 0 ELSE 1 END")
+            ->orderBy('created_at', 'asc')
             ->select('nama', 'nama_panggilan', 'niam', 'jabatan', 'status', 'xp_level', 'no_wa', 'alamat_asal', 'prinsip_hidup', 'photo_url', 'cv_url')
             ->first();
 

@@ -58,7 +58,7 @@ class PaymentController extends Controller
 
         if (!$payment && in_array($claim->status, ['approved', 'pusat_approved'])) {
             return response()->json([
-                'redirectTo' => '/cms',
+                'redirectTo' => '/user-dashboard',
                 'claim' => [
                     'id'               => $claim->id,
                     'pesantren_name'   => $claim->pesantren_name,
@@ -135,7 +135,7 @@ class PaymentController extends Controller
 
         if ($normalizedStatus === FinanceActivationService::STATUS_VERIFIED) {
             return response()->json([
-                'redirectTo' => '/cms',
+                'redirectTo' => '/user-dashboard',
                 'claim' => $claimPayload,
                 'profile' => $profilePayload,
                 'payment'    => [
