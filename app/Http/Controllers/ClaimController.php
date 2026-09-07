@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Crew;
 use App\Models\OtpVerification;
 use App\Models\PesantrenClaim;
+use App\Models\PesantrenDirectory;
 use App\Models\PesantrenProfile;
 use App\Models\User;
 use App\Support\AccessControl;
@@ -99,26 +100,70 @@ class ClaimController extends Controller
             ->take(10)
             ->get();
 
+        $claimItems = $results->map(function ($r) use ($isAdmin) {
+            $item = [
+                'id'             => $r->id,
+                // Halaman klaim memakai penanda ini untuk memilih alur lanjutan:
+                // 'claim' punya pengelola terdaftar sehingga lanjut ke OTP,
+                // 'directory' belum punya akun sehingga lanjut ke form klaim.
+                'source'         => 'claim',
+                'pesantren_name' => $r->pesantren_name,
+                'kecamatan'      => $r->kecamatan,
+                // Ditampilkan di langkah konfirmasi "ini pesantren Anda?",
+                // jadi tetap dikirim ke pemakai publik.
+                'nama_pengelola' => $r->nama_pengelola,
+                'region_id'      => $r->region_id,
+                'status'         => $r->status,
+            ];
+
+            if ($isAdmin) {
+                $item['email_pengelola'] = $r->email_pengelola;
+                $item['user_id']         = $r->user_id;
+            }
+
+            return $item;
+        });
+
+        // Mayoritas pesantren hanya ada di direktori hasil impor dan belum
+        // pernah punya baris pesantren_claims. Tanpa cabang di bawah ini,
+        // pencarian selalu balas "data tidak ditemukan" padahal pesantrennya
+        // terdaftar dan justru itulah yang seharusnya bisa diklaim.
+        //
+        // Baris direktori yang klaimnya sudah muncul di hasil di atas dibuang
+        // supaya satu pesantren tidak tampil dua kali di daftar pilihan.
+        $alreadyListed = $results->pluck('pesantren_directory_id')->filter()->values();
+
+        $directoryResults = PesantrenDirectory::with('regency:id,name')
+            ->where('nama_pesantren', 'like', "%{$q}%")
+            ->whereNotIn('id', $alreadyListed)
+            ->when($role === 'Admin Regional', fn($query) => $query->where('region_id', $profile->region_id))
+            ->orderBy('nama_pesantren')
+            ->take(10)
+            ->get();
+
+        $claimedDirectoryIds = PesantrenClaim::whereIn('pesantren_directory_id', $directoryResults->pluck('id'))
+            ->whereIn('status', ['pending', 'regional_approved', 'approved', 'pusat_approved'])
+            ->pluck('pesantren_directory_id')
+            ->flip();
+
+        $directoryItems = $directoryResults->map(fn($d) => [
+            'id'             => $d->id,
+            'source'         => 'directory',
+            'pesantren_name' => $d->nama_pesantren,
+            'kecamatan'      => $d->kota_kabupaten ?? $d->regency?->name,
+            'nama_pengelola' => $d->nama_pengasuh,
+            'region_id'      => $d->region_id,
+            'regency_id'     => $d->regency_id,
+            'alamat'         => $d->alamat,
+            // Direktori dianggap sudah diklaim bila kolomnya menyatakan begitu
+            // atau ada pengajuan aktif yang menunjuk ke baris ini.
+            'status'         => ((bool) $d->is_claimed || $claimedDirectoryIds->has($d->id))
+                ? 'approved'
+                : 'unclaimed',
+        ]);
+
         return response()->json([
-            'results' => $results->map(function ($r) use ($isAdmin) {
-                $item = [
-                    'id'             => $r->id,
-                    'pesantren_name' => $r->pesantren_name,
-                    'kecamatan'      => $r->kecamatan,
-                    // Ditampilkan di langkah konfirmasi "ini pesantren Anda?",
-                    // jadi tetap dikirim ke pemakai publik.
-                    'nama_pengelola' => $r->nama_pengelola,
-                    'region_id'      => $r->region_id,
-                    'status'         => $r->status,
-                ];
-
-                if ($isAdmin) {
-                    $item['email_pengelola'] = $r->email_pengelola;
-                    $item['user_id']         = $r->user_id;
-                }
-
-                return $item;
-            }),
+            'results' => $claimItems->concat($directoryItems)->take(20)->values(),
         ]);
     }
 

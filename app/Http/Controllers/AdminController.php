@@ -1966,10 +1966,15 @@ class AdminController extends Controller
                 'pricing_package_name' => $p->pricingPackage?->name,
                 'pricing_package_category' => $p->pricingPackage?->category,
                 'pesantren_claims'    => [
-                    'pesantren_name'  => $p->claim?->pesantren_name ?? $p->user?->nama_pesantren,
-                    'nama_pengelola'  => $p->payment_type === FinanceActivationService::TYPE_CREW_ACTIVATION
+                    // Klaim dan profil sama-sama bisa kosong (invoice aktivasi kru,
+                    // upgrade level, tiket event). Tanpa nilai pengganti, kolom nama
+                    // di halaman verifikasi dan riwayat keuangan tampil kosong.
+                    'pesantren_name'  => $p->claim?->pesantren_name
+                        ?? $p->user?->nama_pesantren
+                        ?? ($p->invoice_number ? 'Invoice ' . $p->invoice_number : 'Tanpa nama pesantren'),
+                    'nama_pengelola'  => ($p->payment_type === FinanceActivationService::TYPE_CREW_ACTIVATION
                         ? ($crewNames->get($p->reference_id) ?? $p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh)
-                        : ($p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh),
+                        : ($p->claim?->nama_pengelola ?? $p->user?->nama_pengasuh)) ?? '-',
                     'jenis_pengajuan' => $p->claim?->jenis_pengajuan ?? ($p->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION),
                     'region_id'       => $p->claim?->region_id ?? $p->user?->region_id,
                     'region_name'     => $p->claim?->region?->name ?? $p->user?->region?->name,
