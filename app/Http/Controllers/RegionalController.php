@@ -39,8 +39,20 @@ class RegionalController extends Controller
         $user    = auth()->user();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
-        if (!$user || !AccessControl::hasAny($user, self::REGIONAL_ACCESS_KEYS) || !$profile?->region_id) {
+        if (!$user || !AccessControl::hasAny($user, self::REGIONAL_ACCESS_KEYS)) {
             abort(403, 'Forbidden');
+        }
+
+        // Admin Regional yang berhak tetapi belum dipetakan ke wilayah mana pun
+        // sebelumnya ikut dibalas 403 polos, sehingga dashboard menyimpulkan
+        // "gagal memuat" lalu menampilkan seluruh statistik sebagai 0. Padahal
+        // yang kurang hanya penugasan wilayah, dan itu harus dikerjakan Admin
+        // Pusat, bukan diperbaiki sendiri oleh pemilik akun.
+        if (!$profile?->region_id) {
+            abort(response()->json([
+                'message' => 'Akun ini belum ditugaskan ke wilayah mana pun. Hubungi Admin Pusat untuk menetapkan regionalnya.',
+                'reason'  => 'region_not_assigned',
+            ], 409));
         }
 
         return $profile->region_id;
@@ -123,38 +135,6 @@ class RegionalController extends Controller
                 'xp_level'      => $c->xp_level,
                 'pesantren_name'=> $c->profile?->nama_pesantren,
             ]),
-        ]);
-    }
-
-    /**
-     * Keluarkan akun pesantren dari daftar regional tanpa menghapus histori
-     * klaim, pembayaran, atau kru yang sudah tercatat. Akun dapat dipetakan
-     * kembali oleh admin pusat bila diperlukan.
-     */
-    public function removeProfile(Request $request, string $id)
-    {
-        $regionId = $this->assertRegional();
-
-        DB::transaction(function () use ($id, $regionId) {
-            $profile = PesantrenProfile::whereKey($id)
-                ->where('region_id', $regionId)
-                ->lockForUpdate()
-                ->first();
-
-            if (!$profile) {
-                abort(response()->json(['message' => 'Akun pesantren tidak ditemukan di regional ini.'], 404));
-            }
-
-            // Detach dari regional, jangan hard-delete data operasional.
-            $profile->update(['region_id' => null]);
-            PesantrenClaim::where('user_id', $profile->id)
-                ->where('region_id', $regionId)
-                ->update(['region_id' => null]);
-        });
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Akun pesantren dikeluarkan dari regional.',
         ]);
     }
 
