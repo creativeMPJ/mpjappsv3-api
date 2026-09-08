@@ -23,6 +23,17 @@ class Crew extends Model
         return $this->belongsTo(JabatanCode::class, 'jabatan_code_id');
     }
 
+    /**
+     * Invoice aktivasi kru, kalau ada. Kru yang masih di dalam kuota Golden 3
+     * sengaja tidak punya baris ini karena tidak melewati alur pembayaran.
+     */
+    public function activationPayment()
+    {
+        return $this->hasOne(Payment::class, 'reference_id')
+            ->where('payment_type', 'crew_activation')
+            ->where('reference_type', 'crew');
+    }
+
     public function profile()
     {
         return $this->belongsTo(PesantrenProfile::class, 'profile_id');

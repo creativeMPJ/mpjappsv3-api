@@ -256,6 +256,11 @@ Route::middleware('auth:api')->group(function () {
 
         // Claims & payments
         Route::get('/claims',                              [AdminController::class, 'claims'])->middleware('access:administrasi');
+        // Antrean aktivasi Crew Media di dalam kuota Golden 3: tanpa invoice,
+        // diverifikasi Admin Pusat lewat Administrasi, bukan Admin Finance.
+        Route::get('/crew-activations',                    [AdminController::class, 'crewActivations'])->middleware('access:administrasi');
+        Route::post('/crew-activations/{id}/approve',      [AdminController::class, 'approveCrewActivation'])->middleware('access:administrasi,update');
+        Route::post('/crew-activations/{id}/reject',       [AdminController::class, 'rejectCrewActivation'])->middleware('access:administrasi,update');
         Route::get('/payments',                            [AdminController::class, 'payments'])->middleware('access:verifikasi');
         Route::post('/payments/{id}/reject',               [AdminController::class, 'rejectPayment'])->middleware('access:verifikasi,update');
         Route::post('/payments/{id}/approve',              [AdminController::class, 'approvePayment'])->middleware('access:verifikasi,update');

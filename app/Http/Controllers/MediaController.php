@@ -186,22 +186,13 @@ class MediaController extends Controller
                 'reff_id'   => $crew->id,
             ]);
 
-            $invoice = FinanceActivationService::ensureCrewActivationInvoice($profile, $crew, $user);
-            $invoice->update([
-                'base_amount' => $usesAddonSlot ? $invoice->base_amount : 0,
-                'unique_code' => $usesAddonSlot ? $invoice->unique_code : 0,
-                'total_amount' => $usesAddonSlot ? $invoice->total_amount : 0,
-                'status' => $usesAddonSlot
-                    ? $invoice->status
-                    : FinanceActivationService::STATUS_WAITING_VERIFICATION,
-                'submitted_at' => $usesAddonSlot ? $invoice->submitted_at : now(),
-                'meta' => array_merge($invoice->meta ?? [], [
-                    'slot_type' => $usesAddonSlot ? 'addon' : 'free',
-                    'verification_note' => $usesAddonSlot
-                        ? null
-                        : 'Free slot Golden 3: tanpa invoice pembayaran, cukup verifikasi finance.',
-                ]),
-            ]);
+            // Golden 3 mencakup 1 Pengelola + 2 Crew Media. Kru yang masih di
+            // dalam kuota itu tidak masuk alur pembayaran sama sekali: tidak ada
+            // invoice, tidak ada bukti transfer, dan verifikasinya dikerjakan
+            // Admin Pusat. Invoice hanya dibuat setelah kuota gratis habis.
+            $invoice = $usesAddonSlot
+                ? FinanceActivationService::ensureCrewActivationInvoice($profile, $crew, $user)
+                : null;
 
             return [$crew, $invoice];
         });
@@ -233,15 +224,18 @@ class MediaController extends Controller
                 'jabatan_code_id' => $result->jabatan_code_id,
                 'jabatan_code'    => $result->jabatanCode,
             ],
-            'invoice' => [
+            'slotType' => $usesAddonSlot ? 'addon' : 'free',
+            // Kru slot gratis tidak punya invoice, jadi klien tidak boleh
+            // mengarahkan pengguna ke halaman pembayaran untuk kasus ini.
+            'invoice' => $invoice ? [
                 'id'             => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
                 'status'         => FinanceActivationService::normalizePaymentStatus($invoice->status),
                 'total_amount'   => $invoice->total_amount,
                 'payment_type'   => $invoice->payment_type,
-                'slot_type'      => $usesAddonSlot ? 'addon' : 'free',
+                'slot_type'      => 'addon',
                 'pricing_package_name' => $invoice->pricingPackage?->name,
-            ],
+            ] : null,
         ]);
     }
 

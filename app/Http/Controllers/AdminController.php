@@ -1912,6 +1912,125 @@ class AdminController extends Controller
         ]);
     }
 
+    /**
+     * Antrean aktivasi Crew Media yang masih di dalam kuota Golden 3.
+     *
+     * Kuota itu mencakup 1 Pengelola Akun + 2 Crew Media, dan kru di dalamnya
+     * tidak melewati alur pembayaran sama sekali: tidak ada invoice maupun bukti
+     * transfer, sehingga tidak muncul di antrean Admin Finance. Verifikasinya
+     * dikerjakan Admin Pusat lewat endpoint ini.
+     */
+    public function crewActivations(Request $request)
+    {
+        $this->assertPusat();
+
+        $crews = Crew::with('profile:id,nama_pesantren,nip,region_id,status_account,status_payment')
+            ->where('status', 'pending')
+            ->whereNull('niam')
+            ->whereDoesntHave('activationPayment')
+            ->orderBy('created_at')
+            ->get();
+
+        return response()->json([
+            'crews' => $crews->map(fn($c) => [
+                'id'             => $c->id,
+                'nama'           => $c->nama,
+                'jabatan'        => $c->jabatan_media ?: $c->jabatan,
+                'email'          => $c->email,
+                'whatsapp'       => $c->no_wa,
+                'created_at'     => $c->created_at,
+                'profile_id'     => $c->profile_id,
+                'pesantren_name' => $c->profile?->nama_pesantren,
+                'pesantren_nip'  => $c->profile?->nip,
+                'region_id'      => $c->profile?->region_id,
+                'institusi_siap' => $c->profile?->status_account === 'active'
+                    && $c->profile?->status_payment === 'paid'
+                    && (bool) $c->profile?->nip,
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Aktivasi final tetap milik backend: NIAM baru diterbitkan setelah syarat
+     * institusi terpenuhi, bukan diaktifkan langsung oleh admin.
+     */
+    public function approveCrewActivation(Request $request, string $id)
+    {
+        $this->assertPusat();
+        $actor = auth()->user();
+
+        $crew = Crew::with('profile')->find($id);
+        if (!$crew) {
+            return response()->json(['message' => 'Kru tidak ditemukan.'], 404);
+        }
+
+        if ($crew->niam || $crew->status === 'active') {
+            return response()->json([
+                'message' => 'Kru ini sudah diaktifkan sebelumnya.',
+                'niam'    => $crew->niam,
+            ], 409);
+        }
+
+        $profile = $crew->profile;
+        if (!$profile || $profile->status_account !== 'active' || $profile->status_payment !== 'paid' || !$profile->nip) {
+            return response()->json([
+                'message' => 'Institusi belum aktif penuh, kru belum bisa diaktifkan.',
+            ], 422);
+        }
+
+        $niam = DB::transaction(function () use ($crew, $profile) {
+            $niam = FinanceActivationService::issueCrewNiam($profile, $crew);
+            $crew->update(['status' => 'active', 'niam' => $niam]);
+
+            return $niam;
+        });
+
+        AuditLogger::record(
+            $actor,
+            'crew_activation_approved',
+            'crew',
+            $crew->id,
+            $crew->nama,
+            'Aktivasi kru Golden 3 disetujui Admin Pusat.',
+            ['niam' => $niam, 'profile_id' => $profile->id]
+        );
+
+        return response()->json(['success' => true, 'niam' => $niam]);
+    }
+
+    public function rejectCrewActivation(Request $request, string $id)
+    {
+        $this->assertPusat();
+        $actor = auth()->user();
+        $data  = $request->validate(['reason' => 'required|string|min:1']);
+
+        $crew = Crew::find($id);
+        if (!$crew) {
+            return response()->json(['message' => 'Kru tidak ditemukan.'], 404);
+        }
+
+        if ($crew->niam || $crew->status === 'active') {
+            return response()->json(['message' => 'Kru ini sudah diaktifkan, tidak bisa ditolak.'], 409);
+        }
+
+        $crew->update([
+            'status'  => 'rejected',
+            'catatan' => $data['reason'],
+        ]);
+
+        AuditLogger::record(
+            $actor,
+            'crew_activation_rejected',
+            'crew',
+            $crew->id,
+            $crew->nama,
+            'Aktivasi kru Golden 3 ditolak Admin Pusat.',
+            ['reason' => $data['reason']]
+        );
+
+        return response()->json(['success' => true]);
+    }
+
     public function payments(Request $request)
     {
         $this->assertPusatOrFinance();
