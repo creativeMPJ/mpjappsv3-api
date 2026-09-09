@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -16,6 +17,13 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * Token dibaca dari config services.external_api.tokens, yang isinya berasal
  * dari env EXTERNAL_API_TOKENS berformat "nama:token,nama-lain:token-lain".
+ *
+ * SELAMA EXTERNAL_API_TOKENS MASIH KOSONG, endpoint dibuka tanpa autentikasi.
+ * Ini keadaan sementara yang disengaja supaya konsumen bisa mulai integrasi
+ * lebih dulu. Begitu env-nya diisi, pemeriksaan token langsung berlaku tanpa
+ * perlu ubah kode maupun deploy ulang. Setiap permintaan yang lewat tanpa
+ * token dicatat sebagai peringatan dan ditandai di header respons, supaya
+ * keadaan ini tidak diam-diam menjadi permanen.
  */
 class EnsureServiceToken
 {
@@ -23,13 +31,21 @@ class EnsureServiceToken
     {
         $tokens = config('services.external_api.tokens', []);
 
-        // Tanpa token terdaftar, endpoint ditutup rapat. Membiarkannya terbuka
-        // saat konfigurasi belum diisi jauh lebih berbahaya daripada menolak.
         if (empty($tokens)) {
-            return response()->json([
-                'status'  => 'error',
-                'message' => 'Integrasi API eksternal belum dikonfigurasi di server ini.',
-            ], 503);
+            Log::warning('API integrasi eksternal diakses tanpa autentikasi', [
+                'path' => $request->path(),
+                'ip'   => $request->ip(),
+                'agent' => $request->userAgent(),
+            ]);
+
+            $request->attributes->set('service_consumer', 'tanpa-autentikasi');
+
+            $response = $next($request);
+            // Penanda supaya keadaan sementara ini terlihat dari sisi pemanggil
+            // maupun saat memeriksa respons di log proxy.
+            $response->headers->set('X-Api-Auth', 'disabled');
+
+            return $response;
         }
 
         $presented = $this->presentedToken($request);

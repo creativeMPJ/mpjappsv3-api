@@ -46,10 +46,24 @@ Token diatur lewat env, berpasangan `nama:token` dan dipisah koma:
 EXTERNAL_API_TOKENS="mpj-fest:<token-acak-panjang>,aplikasi-lain:<token-lain>"
 ```
 
-Satu konsumen satu token supaya bisa dicabut sendiri-sendiri. **Kalau env ini kosong,
-seluruh endpoint `/api/external` membalas 503** — ditutup, bukan dibuka bebas.
+Satu konsumen satu token supaya bisa dicabut sendiri-sendiri.
+
+> **Status saat ini: autentikasi belum diaktifkan.**
+> Selama `EXTERNAL_API_TOKENS` masih kosong di server, endpoint `/api/external`
+> bisa dipanggil tanpa token supaya integrasi bisa dimulai lebih dulu. Responsnya
+> membawa header `X-Api-Auth: disabled`, dan setiap permintaan tercatat di log
+> aplikasi sebagai peringatan.
+>
+> Begitu env-nya diisi, pemeriksaan token **langsung berlaku tanpa perlu ubah kode
+> atau deploy ulang** — permintaan tanpa token akan dibalas 401. Konsumen sebaiknya
+> menyiapkan pengiriman header token sejak sekarang, supaya tidak ada yang putus
+> saat autentikasi dinyalakan.
 
 Rate limit: **120 permintaan per menit** per IP.
+
+Endpoint ini membawa data pribadi anggota (nama, email, nomor WhatsApp), jadi selama
+autentikasi belum aktif sebaiknya aksesnya dibatasi di lapisan lain — misalnya
+allowlist IP server MPJ Fest di web server atau firewall.
 
 ## Endpoint
 
@@ -159,10 +173,9 @@ punya lebih dari satu pengajuan.
 
 | Kode | Arti |
 |---|---|
-| 401 | Token tidak disertakan atau tidak dikenali |
+| 401 | Token tidak disertakan atau tidak dikenali (berlaku setelah token dipasang) |
 | 404 | Lembaga atau anggota tidak ditemukan |
 | 429 | Melebihi rate limit |
-| 503 | `EXTERNAL_API_TOKENS` belum diisi di server |
 
 ## Catatan untuk konsumen
 

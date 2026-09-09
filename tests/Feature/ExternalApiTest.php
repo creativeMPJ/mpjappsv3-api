@@ -145,13 +145,31 @@ class ExternalApiTest extends TestCase
             ->assertStatus(401);
     }
 
-    public function test_menutup_endpoint_saat_token_belum_dikonfigurasi(): void
+    /**
+     * Keadaan sementara sampai token dipasang di server: endpoint terbuka,
+     * tetapi ditandai supaya tidak diam-diam menjadi permanen.
+     */
+    public function test_terbuka_selama_token_belum_dikonfigurasi(): void
     {
         config(['services.external_api.tokens' => []]);
+        $this->buatLembagaBeranggota();
 
-        $this->withHeader('X-Api-Key', self::TOKEN)
-            ->getJson('/api/external/institutions')
-            ->assertStatus(503);
+        $this->getJson('/api/external/institutions')
+            ->assertOk()
+            ->assertHeader('X-Api-Auth', 'disabled');
+    }
+
+    public function test_autentikasi_langsung_berlaku_begitu_token_diisi(): void
+    {
+        $this->buatLembagaBeranggota();
+
+        // Tanpa token terdaftar: terbuka.
+        config(['services.external_api.tokens' => []]);
+        $this->getJson('/api/external/institutions')->assertOk();
+
+        // Begitu satu token terdaftar, permintaan tanpa token langsung ditolak.
+        config(['services.external_api.tokens' => ['mpj-fest' => self::TOKEN]]);
+        $this->getJson('/api/external/institutions')->assertStatus(401);
     }
 
     public function test_menerima_bearer_maupun_api_key(): void
