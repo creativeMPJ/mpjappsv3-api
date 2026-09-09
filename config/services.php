@@ -39,4 +39,27 @@ return [
     // Kosongkan kalau tidak dipakai — akses tetap bisa lewat JWT admin.
     'event_api_token' => env('EVENT_API_TOKEN', ''),
 
+    /*
+     * Konsumen API integrasi server-to-server (prefix /api/external).
+     *
+     * EXTERNAL_API_TOKENS diisi berpasangan "nama:token", dipisah koma:
+     *   EXTERNAL_API_TOKENS="mpj-fest:abc123,aplikasi-lain:def456"
+     *
+     * Satu konsumen satu token supaya bisa dicabut sendiri-sendiri. Kalau
+     * kosong, seluruh endpoint /api/external ditutup, bukan dibuka bebas.
+     */
+    'external_api' => [
+        'tokens' => collect(explode(',', (string) env('EXTERNAL_API_TOKENS', '')))
+            ->map(fn ($pair) => trim($pair))
+            ->filter()
+            ->mapWithKeys(function ($pair) {
+                [$name, $token] = array_pad(explode(':', $pair, 2), 2, null);
+                $name  = trim((string) $name);
+                $token = trim((string) $token);
+
+                return $name !== '' && $token !== '' ? [$name => $token] : [];
+            })
+            ->all(),
+    ],
+
 ];

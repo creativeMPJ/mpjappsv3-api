@@ -61,6 +61,7 @@ Setiap response login dan `/api/auth/me` menyertakan field `akses` — array per
 | [events.md](events.md) | `/api/events` | Manajemen event |
 | [api-event-frontend.md](api-event-frontend.md) | `/api-event/v1` | Compatibility API untuk frontend MPJ Event |
 | [roles.md](roles.md) | `/api/roles` | Manajemen role & hak akses |
+| [external-integration.md](external-integration.md) | `/api/external` | Integrasi server-to-server: master data anggota & lembaga |
 
 ---
 

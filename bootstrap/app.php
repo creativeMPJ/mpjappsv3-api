@@ -20,7 +20,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo(fn () => null);
         $middleware->alias([
-            'access' => \App\Http\Middleware\EnsureAccess::class,
+            'access'        => \App\Http\Middleware\EnsureAccess::class,
+            'service.token' => \App\Http\Middleware\EnsureServiceToken::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

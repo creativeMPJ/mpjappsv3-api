@@ -834,7 +834,19 @@ class ApiEventCompatController extends Controller
             'niam' => $crew->niam,
             'full_name' => $crew->nama,
             'unit' => $crew->profile?->nama_pesantren,
-            'photo_path' => null,
+            'photo_path' => $crew->photo_url,
+            // Field di bawah dipakai konsumen integrasi untuk menyimpan
+            // referensi lembaga dan memutuskan apakah anggotanya masih berhak
+            // mendaftar. Nama field lama dipertahankan apa adanya supaya
+            // pemakai yang sudah jalan tidak ikut berubah.
+            'institution_id' => $crew->profile_id,
+            'institution_name' => $crew->profile?->nama_pesantren,
+            'institution_nip' => $crew->profile?->nip,
+            'jabatan' => $crew->jabatan_media ?: $crew->jabatan,
+            'is_admin_lembaga' => (bool) $crew->is_pic,
+            'whatsapp' => $crew->no_wa,
+            'email' => $crew->email,
+            'membership_status' => $crew->status === 'active' ? 'aktif' : 'nonaktif',
         ];
     }
 

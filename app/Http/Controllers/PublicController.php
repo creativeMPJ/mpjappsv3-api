@@ -83,7 +83,11 @@ class PublicController extends Controller
         $search = trim($request->query('search', ''));
         if (!$search) return response()->json(['pesantren' => []]);
 
-        $claims = PesantrenClaim::with(['region:id,name', 'profile:id,alamat_singkat'])
+        $claims = PesantrenClaim::with([
+                'region:id,name',
+                'profile:id,alamat_singkat,alamat_lengkap,regency_id,status_account,nip',
+                'profile.regency:id,name',
+            ])
             ->whereIn('status', ['approved', 'pusat_approved'])
             ->where('pesantren_name', 'like', "%{$search}%")
             ->orderBy('pesantren_name')
@@ -92,10 +96,20 @@ class PublicController extends Controller
 
         return response()->json([
             'pesantren' => $claims->map(fn($c) => [
-                'id'     => $c->id,
-                'name'   => $c->pesantren_name,
-                'region' => $c->region?->name ?? '-',
-                'alamat' => $c->profile?->alamat_singkat ?? '-',
+                // `id` dipertahankan sebagai id pengajuan karena sudah dipakai
+                // konsumen lama. Referensi lembaga yang stabil ada di
+                // institution_id: itu yang harus disimpan aplikasi lain,
+                // sebab satu lembaga bisa punya lebih dari satu pengajuan.
+                'id'             => $c->id,
+                'institution_id' => $c->profile?->id ?? $c->user_id,
+                'name'           => $c->pesantren_name,
+                'region'         => $c->region?->name ?? '-',
+                'region_id'      => $c->region_id,
+                'kota'           => $c->profile?->regency?->name,
+                'alamat'         => $c->profile?->alamat_lengkap ?: ($c->profile?->alamat_singkat ?? '-'),
+                'nip'            => $c->profile?->nip,
+                'status'         => $c->profile?->status_account === 'active' ? 'aktif' : 'nonaktif',
+                'is_active'      => $c->profile?->status_account === 'active',
             ]),
         ]);
     }

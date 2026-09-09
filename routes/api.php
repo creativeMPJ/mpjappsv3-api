@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClaimController;
 use App\Http\Controllers\EventController;
+use App\Http\Controllers\ExternalApiController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\PaymentController;
@@ -92,6 +93,17 @@ Route::prefix('public')->group(function () {
     Route::get('/pesantren',                       [PublicController::class, 'pesantrenSearch']);
     Route::get('/pesantren/{nip}/profile',         [PublicController::class, 'pesantrenProfile']);
     Route::get('/pesantren/{nip}/crew/{niamSuffix}',[PublicController::class, 'pesantrenCrew']);
+});
+
+// ── Integrasi eksternal (server-to-server) ────────────────────────────
+// Dipakai aplikasi lain yang menjadikan MPJApps sebagai master data anggota
+// dan lembaga. Autentikasinya token layanan, bukan sesi pengguna, sehingga
+// pemanggilnya tidak pernah membawa hak akses peran mana pun.
+Route::prefix('external')->middleware(['service.token', 'throttle:120,1'])->group(function () {
+    Route::get('/institutions',                 [ExternalApiController::class, 'institutions']);
+    Route::get('/institutions/{id}',            [ExternalApiController::class, 'institutionDetail']);
+    Route::get('/institutions/{id}/members',    [ExternalApiController::class, 'institutionMembers']);
+    Route::get('/members/{id}/institutions',    [ExternalApiController::class, 'memberInstitutions']);
 });
 
 // ── Public claim flow used by landing page ────────────────────────────
