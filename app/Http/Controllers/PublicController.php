@@ -47,6 +47,7 @@ class PublicController extends Controller
     {
         $search   = trim($request->query('search', ''));
         $regionId = trim($request->query('regionId', ''));
+        $limit    = max(1, min((int) $request->query('limit', 20), 50));
 
         $query = PesantrenProfile::with('region:id,name,code')
             ->where('status_account', 'active')
@@ -208,7 +209,7 @@ class PublicController extends Controller
             $query->where('region_id', $regionId);
         }
 
-        $results = $query->orderBy('nama_pesantren')->take(100)->get();
+        $results = $query->orderBy('nama_pesantren')->limit($limit)->get();
         $directoryIds = $results->pluck('id')->filter()->values();
         $claimedDirectoryIds = PesantrenClaim::whereIn('pesantren_directory_id', $directoryIds)
             ->whereIn('status', ['pending', 'regional_approved', 'approved', 'pusat_approved'])

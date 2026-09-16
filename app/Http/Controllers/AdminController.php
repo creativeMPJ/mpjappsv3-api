@@ -45,7 +45,6 @@ class AdminController extends Controller
     private const FINANCE_ACCESS_KEYS = [
         'verifikasi',
         'laporan-keuangan',
-        'harga',
         'clearing',
         'regional-monitoring',
         'finance',
@@ -1815,7 +1814,7 @@ class AdminController extends Controller
 
     public function priceSettings(Request $request)
     {
-        $this->assertPusatOrFinance();
+        $this->assertPusat();
 
         return response()->json([
             'registrationPrice' => (int) SystemSetting::getValue('registration_base_price', 50000),
@@ -1827,7 +1826,7 @@ class AdminController extends Controller
 
     public function updatePriceSettings(Request $request)
     {
-        $this->assertFinance();
+        $this->assertPusat();
 
         $data = $request->validate([
             'registrationPrice' => 'required|integer|min:1',
@@ -2513,7 +2512,7 @@ class AdminController extends Controller
 
     public function pricingPackages(Request $request)
     {
-        $this->assertPusatOrFinance();
+        $this->assertPusat();
 
         $packages = PricingPackage::orderByRaw("category ASC, harga_paket ASC")->get();
 
@@ -2532,7 +2531,7 @@ class AdminController extends Controller
 
     public function createPricingPackage(Request $request)
     {
-        $this->assertFinance();
+        $this->assertPusat();
 
         $data = $request->validate([
             'name'        => 'required|string',
@@ -2566,7 +2565,7 @@ class AdminController extends Controller
 
     public function updatePricingPackage(Request $request, string $id)
     {
-        $this->assertFinance();
+        $this->assertPusat();
 
         $data = $request->validate([
             'name'        => 'nullable|string',
@@ -2615,7 +2614,7 @@ class AdminController extends Controller
 
     public function togglePricingPackage(Request $request, string $id)
     {
-        $this->assertFinance();
+        $this->assertPusat();
 
         $pkg = PricingPackage::find($id);
         if (!$pkg) return response()->json(['message' => 'Paket tidak ditemukan'], 404);

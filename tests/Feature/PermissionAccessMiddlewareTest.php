@@ -98,7 +98,8 @@ class PermissionAccessMiddlewareTest extends TestCase
 
     public function test_price_package_create_allows_create_permission(): void
     {
-        $user = $this->userWithAccess('Finance Manager', [
+        $user = $this->userWithAccess('Admin Pusat', [
+            'administrasi' => $this->access(view: true, create: false, update: false, delete: false),
             'harga' => $this->access(view: true, create: true, update: true, delete: false),
         ]);
 
