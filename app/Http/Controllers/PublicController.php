@@ -50,6 +50,7 @@ class PublicController extends Controller
 
         $query = PesantrenProfile::with('region:id,name,code')
             ->where('status_account', 'active')
+            ->where('status_payment', 'paid')
             ->whereNotNull('nip');
 
         if ($search) {
@@ -121,6 +122,7 @@ class PublicController extends Controller
         $profile = PesantrenProfile::with('region:id,name')
             ->where('nip', $cleanNip)
             ->where('status_account', 'active')
+            ->where('status_payment', 'paid')
             ->first(['id', 'nama_pesantren', 'nama_pengasuh', 'nama_media', 'logo_url', 'nip', 'profile_level', 'region_id', 'status_account', 'social_links']);
 
         if (!$profile) return response()->json(['message' => 'Pesantren tidak ditemukan'], 404);
@@ -159,7 +161,9 @@ class PublicController extends Controller
         $cleanNip = str_replace('.', '', $nip);
         $suffix   = str_pad($niamSuffix, 2, '0', STR_PAD_LEFT);
 
-        $profile = PesantrenProfile::where('nip', $cleanNip)->where('status_account', 'active')
+        $profile = PesantrenProfile::where('nip', $cleanNip)
+            ->where('status_account', 'active')
+            ->where('status_payment', 'paid')
             ->first(['id', 'nama_pesantren', 'nip', 'logo_url']);
 
         if (!$profile) return response()->json(['message' => 'Pesantren tidak ditemukan'], 404);

@@ -52,7 +52,8 @@ class AuthController extends Controller
             $profile = PesantrenProfile::create([
                 'id'             => (string) Str::uuid(),
                 'user_id'        => $user->id,
-                'status_account' => 'active',
+                'status_account' => 'pending',
+                'status_payment' => 'unpaid',
                 'nama_pesantren' => $data['namaPesantren'] ?? null,
                 'nama_pengasuh'  => $data['namaPengasuh'] ?? null,
             ]);

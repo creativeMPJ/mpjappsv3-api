@@ -324,7 +324,10 @@ class RegionalController extends Controller
 
             if ($claim->jenis_pengajuan === 'klaim') {
                 PesantrenProfile::where('id', $claim->user_id)->update([
-                    'status_account' => 'active',
+                    // Persetujuan Regional hanya meloloskan klaim ke tahap
+                    // pembayaran. Aktivasi final tetap dilakukan backend setelah
+                    // pembayaran diverifikasi dan NIP tersedia.
+                    'status_account' => 'pending',
                     'status_payment' => 'unpaid',
                 ]);
 
