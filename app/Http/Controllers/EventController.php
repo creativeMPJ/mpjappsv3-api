@@ -163,6 +163,31 @@ class EventController extends Controller
         return $profile->region_id;
     }
 
+    private function assertRegionalEventScope(Event $event, string $regionId): void
+    {
+        if ($event->region_id !== null && $event->region_id !== $regionId) {
+            abort(404, 'Event not found');
+        }
+    }
+
+    private function regionalScopeForPanitia(Event $event): ?string
+    {
+        $this->assertPanitia();
+        $role = auth()->user()?->activeRole()?->nama;
+
+        if ($role !== 'Admin Regional') {
+            return null;
+        }
+
+        $profile = PesantrenProfile::where('user_id', auth()->id())->first();
+        if (!$profile?->region_id) {
+            abort(403, 'Forbidden');
+        }
+
+        $this->assertRegionalEventScope($event, $profile->region_id);
+        return $profile->region_id;
+    }
+
     public function index(Request $request)
     {
         $events = Event::with('speakers')->orderBy('date', 'desc')->get();
@@ -403,8 +428,16 @@ class EventController extends Controller
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'Event not found'], 404);
 
-        $regions = Region::orderBy('name')->get();
-        $reports = EventReport::where('event_id', $id)->get()->keyBy('region_id');
+        $regionalScope = $this->regionalScopeForPanitia($event);
+
+        $regions = Region::query()
+            ->when($regionalScope, fn($query) => $query->whereKey($regionalScope))
+            ->orderBy('name')
+            ->get();
+        $reports = EventReport::where('event_id', $id)
+            ->when($regionalScope, fn($query) => $query->where('region_id', $regionalScope))
+            ->get()
+            ->keyBy('region_id');
 
         $result = $regions->map(fn($r) => [
             'regionId'   => $r->id,
@@ -592,6 +625,9 @@ class EventController extends Controller
     public function regionalSubmitReport(Request $request, string $id)
     {
         $regionId = $this->assertRegional();
+        $event = Event::find($id);
+        if (!$event) return response()->json(['message' => 'Event not found'], 404);
+        $this->assertRegionalEventScope($event, $regionId);
 
         $data = $request->validate([
             'participationCount' => 'required|integer|min:0',
@@ -645,6 +681,7 @@ class EventController extends Controller
 
         $event = Event::find($id);
         if (!$event) return response()->json(['message' => 'Event not found'], 404);
+        $this->regionalScopeForPanitia($event);
 
         $registrations = EventRegistration::with(['event', 'payment'])
             ->where('event_id', $id)
