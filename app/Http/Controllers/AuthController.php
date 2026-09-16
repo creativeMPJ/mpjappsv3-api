@@ -148,6 +148,26 @@ class AuthController extends Controller
         }
 
         $userRole = UserRole::where('user_id', $user->id)->orderBy('created_at', 'desc')->with('roleDetail')->first();
+        $roleName = strtolower(trim((string) ($userRole?->roleDetail?->nama ?? '')));
+        $isMemberRole = in_array($roleName, [
+            'user',
+            'crew',
+            'pengguna pesantren',
+            'crew media',
+            'kru pesantren',
+        ], true);
+        $effectiveAccountStatus = $profile->status_account;
+
+        // Data historis pernah menandai akun aktif segera setelah persetujuan
+        // Regional. Untuk role anggota/pengelola, sesi tetap diperlakukan pending
+        // sampai pembayaran resmi, NIP, dan status aktif seluruhnya terpenuhi.
+        if (
+            $isMemberRole
+            && $profile->status_account === 'active'
+            && ($profile->status_payment !== 'paid' || !$profile->nip)
+        ) {
+            $effectiveAccountStatus = 'pending';
+        }
 
         return response()->json([
             'user' => [
@@ -156,7 +176,7 @@ class AuthController extends Controller
                 'role'           => $userRole?->roleDetail?->nama ?? 'Pengguna Pesantren',
                 'akses'          => $userRole?->roleDetail?->akses ?? [],
                 'isSuperAdmin'   => $userRole?->roleDetail?->is_super_admin ?? false,
-                'statusAccount'  => $profile->status_account,
+                'statusAccount'  => $effectiveAccountStatus,
                 'statusPayment'  => $profile->status_payment ?? 'unpaid',
                 'profileLevel'   => $profile->profile_level ?? 'basic',
                 'nip'            => $profile->nip,

@@ -46,7 +46,17 @@ class ExternalApiController extends Controller
 
         if (($isActive = $request->query('is_active')) !== null) {
             $wantsActive = filter_var($isActive, FILTER_VALIDATE_BOOLEAN);
-            $query->where('status_account', $wantsActive ? '=' : '!=', 'active');
+            if ($wantsActive) {
+                $query->where('status_account', 'active')
+                    ->where('status_payment', 'paid')
+                    ->whereNotNull('nip');
+            } else {
+                $query->where(function ($profileQuery) {
+                    $profileQuery->where('status_account', '!=', 'active')
+                        ->orWhere('status_payment', '!=', 'paid')
+                        ->orWhereNull('nip');
+                });
+            }
         }
 
         $page = $query->orderBy('nama_pesantren')->paginate($this->perPage($request));
