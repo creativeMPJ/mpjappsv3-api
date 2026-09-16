@@ -47,7 +47,6 @@ class PublicController extends Controller
     {
         $search   = trim($request->query('search', ''));
         $regionId = trim($request->query('regionId', ''));
-        $limit    = max(1, min((int) $request->query('limit', 20), 50));
 
         $query = PesantrenProfile::with('region:id,name,code')
             ->where('status_account', 'active')
@@ -193,6 +192,7 @@ class PublicController extends Controller
     {
         $search   = trim($request->query('search', ''));
         $regionId = trim($request->query('regionId', ''));
+        $limit    = max(1, min((int) $request->query('limit', 20), 50));
 
         $query = PesantrenDirectory::with('region:id,name,code')
             ->whereNull('deleted_at');
