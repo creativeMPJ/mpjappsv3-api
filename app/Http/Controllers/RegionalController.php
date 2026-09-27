@@ -17,6 +17,7 @@ use App\Models\RegionalReport;
 use App\Models\Region;
 use App\Support\AccessControl;
 use App\Support\AuditLogger;
+use App\Support\BerkasDokumen;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -183,7 +184,10 @@ class RegionalController extends Controller
                 'kecamatan'        => $c->kecamatan,
                 'nama_pengelola'   => $c->nama_pengelola,
                 'email_pengelola'  => $c->email_pengelola,
-                'dokumen_bukti_url'=> $c->dokumen_bukti_url,
+                // Klien menerima endpoint entitas, bukan storage key internal.
+                // Endpoint ini tetap memeriksa role dan kesesuaian Regional.
+                'dokumen_preview_url' => "/api/documents/klaim/{$c->id}",
+                'dokumen_status'      => BerkasDokumen::status($c->dokumen_bukti_url),
                 'notes'            => $c->notes,
                 'claimed_at'       => $c->claimed_at,
                 'regional_approved_at' => $c->regional_approved_at,

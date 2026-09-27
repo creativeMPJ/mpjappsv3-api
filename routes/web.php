@@ -30,6 +30,14 @@ Route::get('/uploads/{path}', function (string $path) {
         }
     }
 
+    // Dokumen berikut selalu privat, termasuk file warisan yang mungkin masih
+    // berada di disk public. Akses hanya melalui endpoint API berizin.
+    foreach (['registration-documents/', 'payment-proofs/', 'crew-cv/'] as $privatePrefix) {
+        if (str_starts_with($path, $privatePrefix)) {
+            abort(404);
+        }
+    }
+
     $disk = Storage::disk('public');
 
     if (!$disk->exists($path)) {

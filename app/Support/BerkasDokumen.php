@@ -37,4 +37,21 @@ class BerkasDokumen
 
         return self::MISSING;
     }
+
+    public static function diskBerkas(?string $url): ?string
+    {
+        $path = self::pathRelatif($url);
+
+        if ($path === null) {
+            return null;
+        }
+
+        foreach (['local', 'public'] as $disk) {
+            if (Storage::disk($disk)->exists($path)) {
+                return $disk;
+            }
+        }
+
+        return null;
+    }
 }

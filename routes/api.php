@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClaimController;
 use App\Http\Controllers\EventController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExternalApiController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\MediaController;
@@ -164,6 +165,9 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/location',                    [InstitutionController::class, 'location']);
         Route::get('/pending-status',               [InstitutionController::class, 'pendingStatus']);
     });
+
+    // Dokumen pendaftaran privat: authorization diperiksa terhadap entitas klaim.
+    Route::get('/documents/klaim/{claimId}', [DocumentController::class, 'dokumenKlaim']);
 
     // ── Hub resources ────────────────────────────────────────────────
     Route::prefix('hub')->group(function () {

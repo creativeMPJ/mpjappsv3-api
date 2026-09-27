@@ -52,7 +52,7 @@ class InstitutionController extends Controller
         $file->storeAs(
             "registration-documents/{$user->id}",
             time() . ".{$ext}",
-            'public'
+            'local'
         );
 
         return response()->json(['path' => '/uploads/' . $relativePath]);
