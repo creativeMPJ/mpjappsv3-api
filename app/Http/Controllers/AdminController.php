@@ -21,6 +21,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Support\AccessControl;
 use App\Support\AuditLogger;
+use App\Support\BerkasDokumen;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -2046,7 +2047,19 @@ class AdminController extends Controller
             'paymentLogs:id,payment_id',
         ])
             ->when($request->filled('payment_type'), fn($query) => $query->where('payment_type', $request->input('payment_type')))
-            ->when($request->filled('payment_status'), fn($query) => $query->where('status', $request->input('payment_status')))
+            ->when($request->filled('payment_status'), function ($query) use ($request) {
+                $status = FinanceActivationService::normalizePaymentStatus($request->input('payment_status'));
+
+                $query->where('status', $status);
+
+                // Antrean verifikasi hanya berisi pembayaran yang sudah pernah
+                // mengunggah bukti. Referensi yang berkasnya hilang tetap dikirim
+                // agar Finance dapat melihat status incomplete dan meminta upload ulang.
+                if ($status === FinanceActivationService::STATUS_WAITING_VERIFICATION) {
+                    $query->whereNotNull('proof_file_url')
+                        ->where('proof_file_url', '!=', '');
+                }
+            })
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -2074,6 +2087,7 @@ class AdminController extends Controller
                 'unique_code'         => $p->unique_code,
                 'total_amount'        => $p->total_amount,
                 'proof_file_url'      => $p->proof_file_url,
+                'proof_status'        => BerkasDokumen::status($p->proof_file_url),
                 'status'              => FinanceActivationService::normalizePaymentStatus($p->status),
                 'created_at'          => $p->created_at,
                 'rejection_reason'    => $p->rejection_reason,
@@ -2192,6 +2206,18 @@ class AdminController extends Controller
         // di-approve dan menerbitkan NIP baru. Penerbitan NIP sendiri sudah
         // diserialisasi lewat lock baris region di issueNipForRegion().
         $this->assertPaymentActionable($payment);
+
+        $proofStatus = BerkasDokumen::status($payment->proof_file_url);
+        if ($proofStatus !== BerkasDokumen::AVAILABLE) {
+            $message = $proofStatus === BerkasDokumen::NONE
+                ? 'Bukti transfer belum diunggah.'
+                : 'Bukti transfer tidak tersedia. Menunggu unggah ulang dari pemohon.';
+
+            abort(response()->json([
+                'message' => $message,
+                'proof_status' => $proofStatus,
+            ], 422));
+        }
 
         if (($payment->payment_type ?? FinanceActivationService::TYPE_INSTITUTION_ACTIVATION) === FinanceActivationService::TYPE_CREW_ACTIVATION) {
             $crew = FinanceActivationService::approveCrewActivation($payment, $user);
