@@ -7,6 +7,7 @@ use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
 use App\Models\SystemSetting;
 use App\Support\FinanceActivationService;
+use App\Support\PaymentContactResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -42,6 +43,7 @@ class PaymentController extends Controller
         $bankName          = SystemSetting::getValue('bank_name', 'Bank Syariah Indonesia (BSI)');
         $bankAccountNumber = SystemSetting::getValue('bank_account_number', '7171234567890');
         $bankAccountName   = SystemSetting::getValue('bank_account_name', 'MEDIA PONDOK JAWA TIMUR');
+        $paymentContact    = PaymentContactResolver::resolve();
 
         $payment = Payment::with('pricingPackage')
             ->where('user_id', $profile->id)
@@ -89,6 +91,7 @@ class PaymentController extends Controller
             ->whereIn('status', [
                 FinanceActivationService::STATUS_PENDING,
                 FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                FinanceActivationService::STATUS_LEGACY_WAITING_VERIFICATION,
                 FinanceActivationService::STATUS_REJECTED,
             ])
             ->orderBy('created_at', 'desc')
@@ -124,12 +127,13 @@ class PaymentController extends Controller
                     'id' => $payment->id,
                     'status' => $normalizedStatus,
                     'rejectionReason' => $payment->rejection_reason,
-                'paymentType' => $payment->payment_type,
-                'invoiceNumber' => $payment->invoice_number,
-                'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
-                'pricingPackageName' => $payment->pricingPackage?->name,
-                'pricingPackageCategory' => $payment->pricingPackage?->category,
-            ],
+                    'paymentType' => $payment->payment_type,
+                    'invoiceNumber' => $payment->invoice_number,
+                    'activationState' => FinanceActivationService::determineActivationState($profile, $payment, $claim),
+                    'pricingPackageName' => $payment->pricingPackage?->name,
+                    'pricingPackageCategory' => $payment->pricingPackage?->category,
+                ],
+                'paymentContact' => $paymentContact,
             ]);
         }
 
@@ -148,6 +152,7 @@ class PaymentController extends Controller
                     'pricingPackageName' => $payment->pricingPackage?->name,
                     'pricingPackageCategory' => $payment->pricingPackage?->category,
                 ],
+                'paymentContact' => $paymentContact,
             ]);
         }
 
@@ -190,6 +195,7 @@ class PaymentController extends Controller
                 'accountNumber' => (string) $bankAccountNumber,
                 'accountName'   => (string) $bankAccountName,
             ],
+            'paymentContact' => $paymentContact,
         ]);
     }
 
@@ -290,7 +296,7 @@ class PaymentController extends Controller
 
         $payment->update([
             'proof_file_url'   => '/uploads/' . $relativePath,
-            'status'           => FinanceActivationService::STATUS_WAITING_VERIFICATION,
+            'status'           => FinanceActivationService::STATUS_PAID_UNVERIFIED,
             'rejection_reason' => null,
             'submitted_at'     => now(),
             'meta'             => array_merge($payment->meta ?? [], ['sender_name' => $request->senderName]),
@@ -301,7 +307,7 @@ class PaymentController extends Controller
             $user->id,
             'submit_proof',
             $fromStatus,
-            FinanceActivationService::STATUS_WAITING_VERIFICATION,
+            FinanceActivationService::STATUS_PAID_UNVERIFIED,
             'Bukti pembayaran diunggah.'
         );
 

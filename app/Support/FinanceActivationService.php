@@ -29,7 +29,9 @@ class FinanceActivationService
     private const NIAM_MAX_ATTEMPTS = 5;
 
     public const STATUS_PENDING = 'pending';
-    public const STATUS_WAITING_VERIFICATION = 'waiting_verification';
+    public const STATUS_PAID_UNVERIFIED = 'paid_unverified';
+    public const STATUS_WAITING_VERIFICATION = self::STATUS_PAID_UNVERIFIED;
+    public const STATUS_LEGACY_WAITING_VERIFICATION = 'waiting_verification';
     public const STATUS_VERIFIED = 'verified';
     public const STATUS_REJECTED = 'rejected';
     public const STATUS_EXPIRED = 'expired';
@@ -43,7 +45,7 @@ class FinanceActivationService
     {
         return match ($status) {
             'pending_payment' => self::STATUS_PENDING,
-            'pending_verification' => self::STATUS_WAITING_VERIFICATION,
+            'pending_verification', self::STATUS_LEGACY_WAITING_VERIFICATION => self::STATUS_PAID_UNVERIFIED,
             default => $status ?: self::STATUS_PENDING,
         };
     }
@@ -71,7 +73,7 @@ class FinanceActivationService
             return 'activation_completed';
         }
 
-        if ($status === self::STATUS_WAITING_VERIFICATION) {
+        if ($status === self::STATUS_PAID_UNVERIFIED) {
             return 'waiting_verification';
         }
 
@@ -266,7 +268,7 @@ class FinanceActivationService
         $existing = Payment::where('payment_type', $paymentType)
             ->where('reference_type', self::REFERENCE_PROFILE)
             ->where('reference_id', $profile->id)
-            ->whereIn('status', [self::STATUS_PENDING, self::STATUS_WAITING_VERIFICATION, self::STATUS_REJECTED])
+            ->whereIn('status', [self::STATUS_PENDING, self::STATUS_PAID_UNVERIFIED, self::STATUS_LEGACY_WAITING_VERIFICATION, self::STATUS_REJECTED])
             ->orderBy('created_at', 'desc')
             ->first();
 

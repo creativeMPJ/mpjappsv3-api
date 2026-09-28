@@ -2050,12 +2050,19 @@ class AdminController extends Controller
             ->when($request->filled('payment_status'), function ($query) use ($request) {
                 $status = FinanceActivationService::normalizePaymentStatus($request->input('payment_status'));
 
-                $query->where('status', $status);
+                if ($status === FinanceActivationService::STATUS_PAID_UNVERIFIED) {
+                    $query->whereIn('status', [
+                        FinanceActivationService::STATUS_PAID_UNVERIFIED,
+                        FinanceActivationService::STATUS_LEGACY_WAITING_VERIFICATION,
+                    ]);
+                } else {
+                    $query->where('status', $status);
+                }
 
                 // Antrean verifikasi hanya berisi pembayaran yang sudah pernah
                 // mengunggah bukti. Referensi yang berkasnya hilang tetap dikirim
                 // agar Finance dapat melihat status incomplete dan meminta upload ulang.
-                if ($status === FinanceActivationService::STATUS_WAITING_VERIFICATION) {
+                if ($status === FinanceActivationService::STATUS_PAID_UNVERIFIED) {
                     $query->whereNotNull('proof_file_url')
                         ->where('proof_file_url', '!=', '');
                 }
@@ -2670,6 +2677,7 @@ class AdminController extends Controller
             'pending_verification' => Payment::whereIn('status', [
                 FinanceActivationService::STATUS_PENDING,
                 FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                FinanceActivationService::STATUS_LEGACY_WAITING_VERIFICATION,
             ])->count(),
             'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
             // rejected_at, bukan updated_at: perubahan apa pun pada baris hari ini
