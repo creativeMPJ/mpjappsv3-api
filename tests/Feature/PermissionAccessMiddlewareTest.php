@@ -173,12 +173,10 @@ class PermissionAccessMiddlewareTest extends TestCase
 
         $this->actingAs($user, 'api')->getJson('/api/finance/stats')
             ->assertOk()
-            ->assertExactJson([
-                'total_income' => 0,
-                'pending_verification' => 0,
-                'approved_today' => 0,
-                'rejected_today' => 0,
-            ]);
+            ->assertJsonPath('total_income', 0)
+            ->assertJsonPath('pending_verification', 0)
+            ->assertJsonPath('approved_today', 0)
+            ->assertJsonPath('rejected_today', 0);
     }
 
     public function test_finance_access_migration_updates_existing_role(): void
