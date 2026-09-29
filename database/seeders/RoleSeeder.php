@@ -125,6 +125,7 @@ class RoleSeeder extends Seeder
             'regional-monitoring', // Monitoring Regional
             'pengaturan',
         ], $full);
+        $this->on($adminKeuangan, ['finance'], $viewOnly);
 
         // ── Koordinator ─────────────────────────────────────────────────────
         $koordinator = $this->template();

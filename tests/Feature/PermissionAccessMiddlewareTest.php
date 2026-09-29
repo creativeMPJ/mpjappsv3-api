@@ -16,7 +16,7 @@ class PermissionAccessMiddlewareTest extends TestCase
     {
         parent::setUp();
 
-        foreach (['audit_logs', 'pricing_packages', 'pesantren_profiles', 'user_roles', 'roles', 'users'] as $table) {
+        foreach (['audit_logs', 'pricing_packages', 'payments', 'pesantren_profiles', 'user_roles', 'roles', 'users'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -62,6 +62,14 @@ class PermissionAccessMiddlewareTest extends TestCase
             $table->integer('harga_diskon')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
+        });
+
+        Schema::create('payments', function (Blueprint $table) {
+            $table->uuid('id')->primary();
+            $table->string('status');
+            $table->unsignedBigInteger('total_amount')->default(0);
+            $table->timestamp('verified_at')->nullable();
+            $table->timestamp('rejected_at')->nullable();
         });
 
         Schema::create('audit_logs', function (Blueprint $table) {
@@ -146,6 +154,52 @@ class PermissionAccessMiddlewareTest extends TestCase
 
         $response->assertForbidden();
         $this->assertFalse(Role::where('nama', 'Custom Role')->exists());
+    }
+
+    public function test_finance_stats_requires_dashboard_access(): void
+    {
+        $user = $this->userWithAccess('Admin Keuangan', [
+            'payment' => $this->access(view: true, create: true, update: true, delete: true),
+        ]);
+
+        $this->actingAs($user, 'api')->getJson('/api/finance/stats')->assertForbidden();
+    }
+
+    public function test_finance_stats_allows_dashboard_access(): void
+    {
+        $user = $this->userWithAccess('Admin Keuangan', [
+            'finance' => $this->access(view: true, create: false, update: false, delete: false),
+        ]);
+
+        $this->actingAs($user, 'api')->getJson('/api/finance/stats')
+            ->assertOk()
+            ->assertExactJson([
+                'total_income' => 0,
+                'pending_verification' => 0,
+                'approved_today' => 0,
+                'rejected_today' => 0,
+            ]);
+    }
+
+    public function test_finance_access_migration_updates_existing_role(): void
+    {
+        $role = Role::create([
+            'id' => (string) Str::uuid(),
+            'nama' => 'Admin Keuangan',
+            'is_super_admin' => false,
+            'akses' => [
+                'payment' => $this->access(view: true, create: true, update: true, delete: true),
+            ],
+        ]);
+
+        $migration = require database_path('migrations/2026_09_29_000001_grant_finance_dashboard_access.php');
+        $migration->up();
+        $migration->up();
+
+        $this->assertSame(
+            $this->access(view: true, create: false, update: false, delete: false),
+            $role->fresh()->akses['finance']
+        );
     }
 
     private function userWithAccess(string $roleName, array $access): User
