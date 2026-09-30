@@ -122,6 +122,7 @@ class HubResourceFileTest extends TestCase
             'nama' => 'Admin Pusat',
             'is_super_admin' => false,
             'akses' => [
+                'administrasi' => ['view' => true, 'create' => false, 'update' => false, 'delete' => false],
                 'mpj-hub' => ['view' => true, 'create' => true, 'update' => false, 'delete' => false],
             ],
         ]);
