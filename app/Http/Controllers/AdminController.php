@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use League\Flysystem\FilesystemException;
 
 class AdminController extends Controller
 {
@@ -1563,7 +1564,17 @@ class AdminController extends Controller
             $file = $request->file('file');
             $path = 'hub-resources/' . now()->format('Y/m');
             $filename = $resourceId . '.' . $file->getClientOriginalExtension();
-            $file->storeAs($path, $filename, 'public');
+
+            try {
+                $storedPath = $file->storeAs($path, $filename, 'public');
+            } catch (FilesystemException) {
+                $storedPath = false;
+            }
+
+            if ($storedPath === false) {
+                return response()->json(['message' => 'File gagal disimpan'], 500);
+            }
+
             $fileUrl = '/uploads/' . $path . '/' . $filename;
             $mimeType = $file->getClientMimeType();
             $fileSize = $file->getSize();
