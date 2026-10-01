@@ -273,11 +273,18 @@ class RegionalController extends Controller
     {
         $regionId = $this->assertRegional();
 
-        DB::transaction(function () use ($request, $id, $regionId) {
+        DB::transaction(function () use ($id, $regionId) {
             $claim = PesantrenClaim::whereKey($id)->lockForUpdate()->first();
 
             if (!$claim || $claim->region_id !== $regionId) {
                 abort(response()->json(['message' => 'Claim tidak ditemukan'], 404));
+            }
+
+            $profile = PesantrenProfile::where('id', $claim->user_id)->first();
+            if (!$profile || $profile->region_id !== $regionId) {
+                abort(response()->json([
+                    'message' => 'Pesantren tidak berada di wilayah Regional Anda.',
+                ], 422));
             }
 
             // Hanya pengajuan yang masih menunggu yang boleh disetujui. Tanpa ini
@@ -287,28 +294,10 @@ class RegionalController extends Controller
             // di latePayments() dan performance() kembali nol.
             $this->assertClaimPending($claim);
 
-            // Validasi paket harga berada di dalam transaksi karena bergantung
-            // pada jenis_pengajuan dari baris klaim yang sudah dikunci.
-            $pricingPackage = null;
-            if ($claim->jenis_pengajuan === 'pesantren_baru') {
-                $data = $request->validate([
-                    'pricingPackageId' => 'required|uuid',
-                ]);
-
-                $pricingPackage = PricingPackage::where('id', $data['pricingPackageId'])
-                    ->where('category', 'registration')
-                    ->where('is_active', true)
-                    ->first();
-
-                if (!$pricingPackage) {
-                    abort(response()->json(['message' => 'Paket harga pendaftaran tidak valid atau tidak aktif.'], 422));
-                }
-            }
-
             $claim->update([
                 'status'               => 'regional_approved',
                 'regional_approved_at' => now(),
-                'pricing_package_id'   => $pricingPackage?->id,
+                'pricing_package_id'   => null,
                 'notes'                => null,
             ]);
 
@@ -322,7 +311,7 @@ class RegionalController extends Controller
                 [
                     'region_id' => $regionId,
                     'jenis_pengajuan' => $claim->jenis_pengajuan,
-                    'pricing_package_id' => $pricingPackage?->id,
+                    'pricing_package_id' => null,
                 ]
             );
 

@@ -6,7 +6,6 @@ use App\Models\Crew;
 use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
-use App\Models\PricingPackage;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\UserRole;
@@ -26,7 +25,6 @@ class RegionalActivationPaymentFlowTest extends TestCase
     private User $finance;
     private PesantrenProfile $profile;
     private PesantrenClaim $claim;
-    private PricingPackage $package;
     private Crew $ownerCrew;
 
     protected function setUp(): void
@@ -197,15 +195,14 @@ class RegionalActivationPaymentFlowTest extends TestCase
         Storage::fake('public');
 
         $this->actingAs($this->regional, 'api')
-            ->postJson("/api/regional/claims/{$this->claim->id}/approve", [
-                'pricingPackageId' => $this->package->id,
-            ])
+            ->postJson("/api/regional/claims/{$this->claim->id}/approve")
             ->assertOk();
 
         $this->claim->refresh();
         $this->profile->refresh();
 
         $this->assertSame('regional_approved', $this->claim->status);
+        $this->assertNull($this->claim->pricing_package_id);
         $this->assertSame('pending', $this->profile->status_account);
         $this->assertSame('unpaid', $this->profile->status_payment);
         $this->assertNull($this->profile->nip);
@@ -260,9 +257,7 @@ class RegionalActivationPaymentFlowTest extends TestCase
         Storage::fake('public');
 
         $this->actingAs($this->regional, 'api')
-            ->postJson("/api/regional/claims/{$this->claim->id}/approve", [
-                'pricingPackageId' => $this->package->id,
-            ])
+            ->postJson("/api/regional/claims/{$this->claim->id}/approve")
             ->assertOk();
 
         $paymentId = $this->actingAs($this->owner, 'api')
@@ -289,6 +284,19 @@ class RegionalActivationPaymentFlowTest extends TestCase
             ->assertJsonPath('payment.invoiceNumber', $invoiceNumber)
             ->assertJsonPath('payment.status', FinanceActivationService::STATUS_REJECTED)
             ->assertJsonPath('payment.rejectionReason', 'Nominal tidak sesuai');
+    }
+
+    public function test_registration_approval_rejects_profile_outside_admin_region(): void
+    {
+        $this->profile->update(['region_id' => (string) Str::uuid()]);
+
+        $this->actingAs($this->regional, 'api')
+            ->postJson("/api/regional/claims/{$this->claim->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Pesantren tidak berada di wilayah Regional Anda.');
+
+        $this->assertSame('pending', $this->claim->fresh()->status);
+        $this->assertNull($this->claim->fresh()->regional_approved_at);
     }
 
     private function seedFlowData(): void
@@ -335,15 +343,6 @@ class RegionalActivationPaymentFlowTest extends TestCase
             'jenis_pengajuan' => 'pesantren_baru',
             'status' => 'pending',
             'region_id' => $this->regionId,
-        ]);
-
-        $this->package = PricingPackage::create([
-            'id' => (string) Str::uuid(),
-            'name' => 'Registrasi Basic',
-            'category' => 'registration',
-            'harga_paket' => 50000,
-            'harga_diskon' => null,
-            'is_active' => true,
         ]);
     }
 
