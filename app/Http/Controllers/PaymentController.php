@@ -6,10 +6,15 @@ use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
 use App\Models\SystemSetting;
+use App\Support\BerkasDokumen;
 use App\Support\FinanceActivationService;
 use App\Support\PaymentContactResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use League\Flysystem\FilesystemException;
+use Throwable;
 
 class PaymentController extends Controller
 {
@@ -274,10 +279,16 @@ class PaymentController extends Controller
         $user    = auth()->user();
         $profile = PesantrenProfile::where('user_id', $user->id)->first();
 
+        if (!$profile || !$profile->region_id) {
+            return response()->json([
+                'message' => 'Regional belum ditentukan. Hubungi Admin Pusat untuk pemetaan Regional sebelum proses ini dilanjutkan.',
+            ], 422);
+        }
+
         $request->validate([
             'paymentId'  => 'required|uuid',
             'senderName' => 'required|string',
-            'file'       => 'required|file|mimes:jpeg,png,webp,pdf|max:350',
+            'file'       => 'required|file|mimes:jpg,jpeg,png,webp,pdf|max:2048',
         ]);
 
         $payment = Payment::where('id', $request->paymentId)
@@ -286,30 +297,68 @@ class PaymentController extends Controller
 
         if (!$payment) return response()->json(['message' => 'Pembayaran tidak ditemukan'], 404);
 
+        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+        if (!in_array($fromStatus, [FinanceActivationService::STATUS_PENDING, FinanceActivationService::STATUS_REJECTED], true)) {
+            return response()->json([
+                'message' => "Pembayaran berstatus {$fromStatus} sehingga bukti tidak dapat diunggah.",
+            ], 409);
+        }
+
         $file = $request->file('file');
         $filename = time() . '-' . Str::random(8) . '.' . $file->getClientOriginalExtension();
         $directory = "payment-proofs/{$user->id}";
         $relativePath = "{$directory}/{$filename}";
-        $file->storeAs($directory, $filename, 'public');
 
-        $fromStatus = FinanceActivationService::normalizePaymentStatus($payment->status);
+        try {
+            $storedPath = $file->storeAs($directory, $filename, 'local');
+        } catch (FilesystemException) {
+            $storedPath = false;
+        }
 
-        $payment->update([
-            'proof_file_url'   => '/uploads/' . $relativePath,
-            'status'           => FinanceActivationService::STATUS_PAID_UNVERIFIED,
-            'rejection_reason' => null,
-            'submitted_at'     => now(),
-            'meta'             => array_merge($payment->meta ?? [], ['sender_name' => $request->senderName]),
-        ]);
+        if ($storedPath === false) {
+            return response()->json(['message' => 'Bukti transfer gagal disimpan. Silakan coba lagi.'], 500);
+        }
 
-        FinanceActivationService::logPaymentStatusChange(
-            $payment->fresh(),
-            $user->id,
-            'submit_proof',
-            $fromStatus,
-            FinanceActivationService::STATUS_PAID_UNVERIFIED,
-            'Bukti pembayaran diunggah.'
-        );
+        $oldProofUrl = $payment->proof_file_url;
+
+        try {
+            DB::transaction(function () use ($payment, $request, $user, $storedPath) {
+                $lockedPayment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+                $lockedStatus = FinanceActivationService::normalizePaymentStatus($lockedPayment->status);
+
+                if (!in_array($lockedStatus, [FinanceActivationService::STATUS_PENDING, FinanceActivationService::STATUS_REJECTED], true)) {
+                    abort(response()->json([
+                        'message' => "Pembayaran berstatus {$lockedStatus} sehingga bukti tidak dapat diunggah.",
+                    ], 409));
+                }
+
+                $lockedPayment->update([
+                    'proof_file_url'   => '/uploads/' . $storedPath,
+                    'status'           => FinanceActivationService::STATUS_PAID_UNVERIFIED,
+                    'rejection_reason' => null,
+                    'submitted_at'     => now(),
+                    'meta'             => array_merge($lockedPayment->meta ?? [], ['sender_name' => $request->senderName]),
+                ]);
+
+                FinanceActivationService::logPaymentStatusChange(
+                    $lockedPayment->fresh(),
+                    $user->id,
+                    'submit_proof',
+                    $lockedStatus,
+                    FinanceActivationService::STATUS_PAID_UNVERIFIED,
+                    'Bukti pembayaran diunggah.'
+                );
+            });
+        } catch (Throwable $error) {
+            Storage::disk('local')->delete($storedPath);
+            throw $error;
+        }
+
+        $oldPath = BerkasDokumen::pathRelatif($oldProofUrl);
+        $oldDisk = BerkasDokumen::diskBerkas($oldProofUrl);
+        if ($oldPath && $oldDisk && str_starts_with($oldPath, 'payment-proofs/')) {
+            Storage::disk($oldDisk)->delete($oldPath);
+        }
 
         return response()->json(['success' => true]);
     }

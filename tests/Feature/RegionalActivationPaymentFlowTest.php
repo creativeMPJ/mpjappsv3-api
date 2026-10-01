@@ -192,7 +192,7 @@ class RegionalActivationPaymentFlowTest extends TestCase
 
     public function test_registration_activation_flow_issues_nip_and_owner_niam_only_after_finance_verification(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
 
         $this->actingAs($this->regional, 'api')
             ->postJson("/api/regional/claims/{$this->claim->id}/approve")
@@ -231,6 +231,9 @@ class RegionalActivationPaymentFlowTest extends TestCase
 
         $payment = Payment::find($paymentId);
         $this->assertSame(FinanceActivationService::STATUS_PAID_UNVERIFIED, $payment->status);
+        Storage::disk('local')->assertExists(
+            ltrim(str_replace('/uploads/', '', $payment->proof_file_url), '/')
+        );
         $this->assertSame($invoiceNumber, $payment->invoice_number);
         $this->assertNull($this->profile->fresh()->nip);
 
@@ -254,7 +257,7 @@ class RegionalActivationPaymentFlowTest extends TestCase
 
     public function test_rejected_payment_reuses_same_invoice_for_resubmission(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
 
         $this->actingAs($this->regional, 'api')
             ->postJson("/api/regional/claims/{$this->claim->id}/approve")
@@ -284,6 +287,91 @@ class RegionalActivationPaymentFlowTest extends TestCase
             ->assertJsonPath('payment.invoiceNumber', $invoiceNumber)
             ->assertJsonPath('payment.status', FinanceActivationService::STATUS_REJECTED)
             ->assertJsonPath('payment.rejectionReason', 'Nominal tidak sesuai');
+    }
+
+    public function test_payment_proof_accepts_pdf_up_to_two_megabytes(): void
+    {
+        Storage::fake('local');
+
+        $this->actingAs($this->regional, 'api')
+            ->postJson("/api/regional/claims/{$this->claim->id}/approve")
+            ->assertOk();
+
+        $paymentId = $this->actingAs($this->owner, 'api')
+            ->getJson('/api/payments/current')
+            ->json('payment.id');
+
+        $this->actingAs($this->owner, 'api')
+            ->post('/api/payments/submit-proof', [
+                'paymentId' => $paymentId,
+                'senderName' => 'Pengelola Test',
+                'file' => UploadedFile::fake()->create('proof.pdf', 1900, 'application/pdf'),
+            ])
+            ->assertOk();
+
+        $payment = Payment::find($paymentId);
+        $this->assertSame(FinanceActivationService::STATUS_PAID_UNVERIFIED, $payment->status);
+        Storage::disk('local')->assertExists(
+            ltrim(str_replace('/uploads/', '', $payment->proof_file_url), '/')
+        );
+    }
+
+    public function test_verified_payment_rejects_proof_reupload_without_storage_change(): void
+    {
+        Storage::fake('local');
+        $oldPath = 'payment-proofs/old-proof.jpg';
+        Storage::disk('local')->put($oldPath, 'old-proof');
+        $payment = Payment::create([
+            'id' => (string) Str::uuid(),
+            'user_id' => $this->profile->id,
+            'pesantren_claim_id' => $this->claim->id,
+            'base_amount' => 50000,
+            'unique_code' => 123,
+            'total_amount' => 50123,
+            'status' => FinanceActivationService::STATUS_VERIFIED,
+            'payment_type' => FinanceActivationService::TYPE_INSTITUTION_ACTIVATION,
+            'proof_file_url' => '/uploads/' . $oldPath,
+        ]);
+
+        $this->actingAs($this->owner, 'api')
+            ->post('/api/payments/submit-proof', [
+                'paymentId' => $payment->id,
+                'senderName' => 'Pengelola Test',
+                'file' => UploadedFile::fake()->image('new-proof.jpg')->size(120),
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran berstatus verified sehingga bukti tidak dapat diunggah.');
+
+        $this->assertSame('/uploads/' . $oldPath, $payment->fresh()->proof_file_url);
+        Storage::disk('local')->assertExists($oldPath);
+        $this->assertCount(1, Storage::disk('local')->allFiles('payment-proofs'));
+    }
+
+    public function test_payment_proof_storage_failure_leaves_payment_pending(): void
+    {
+        $this->actingAs($this->regional, 'api')
+            ->postJson("/api/regional/claims/{$this->claim->id}/approve")
+            ->assertOk();
+
+        $paymentId = $this->actingAs($this->owner, 'api')
+            ->getJson('/api/payments/current')
+            ->json('payment.id');
+
+        config(['filesystems.disks.local.root' => '/dev/null/payment-proofs']);
+        Storage::forgetDisk('local');
+
+        $this->actingAs($this->owner, 'api')
+            ->post('/api/payments/submit-proof', [
+                'paymentId' => $paymentId,
+                'senderName' => 'Pengelola Test',
+                'file' => UploadedFile::fake()->image('proof.jpg')->size(120),
+            ])
+            ->assertStatus(500)
+            ->assertJsonPath('message', 'Bukti transfer gagal disimpan. Silakan coba lagi.');
+
+        $payment = Payment::find($paymentId);
+        $this->assertSame(FinanceActivationService::STATUS_PENDING, $payment->status);
+        $this->assertNull($payment->proof_file_url);
     }
 
     public function test_registration_approval_rejects_profile_outside_admin_region(): void
