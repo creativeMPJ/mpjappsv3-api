@@ -11,12 +11,15 @@ use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\UserRole;
+use App\Support\BerkasDokumen;
 use App\Support\FinanceActivationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use League\Flysystem\FilesystemException;
+use Throwable;
 
 class MediaController extends Controller
 {
@@ -599,13 +602,33 @@ class MediaController extends Controller
         ]);
 
         $file = $request->file('file');
-        $relativePath = $file->storeAs(
-            'crew-photos/' . $crew->id,
-            time() . '.' . $file->getClientOriginalExtension(),
-            'public'
-        );
+        $directory = 'crew-photos/' . $crew->id;
+        $filename = time() . '-' . Str::random(8) . '.' . $file->getClientOriginalExtension();
 
-        $crew->update(['photo_url' => Storage::url($relativePath)]);
+        try {
+            $relativePath = $file->storeAs($directory, $filename, 'public');
+        } catch (FilesystemException) {
+            $relativePath = false;
+        }
+
+        if ($relativePath === false) {
+            return response()->json(['message' => 'Foto gagal disimpan. Silakan coba lagi.'], 500);
+        }
+
+        $oldPhotoUrl = $crew->photo_url;
+
+        try {
+            $crew->update(['photo_url' => '/uploads/' . $relativePath]);
+        } catch (Throwable $error) {
+            Storage::disk('public')->delete($relativePath);
+            throw $error;
+        }
+
+        $oldPath = BerkasDokumen::pathRelatif($oldPhotoUrl);
+        $oldDisk = BerkasDokumen::diskBerkas($oldPhotoUrl);
+        if ($oldPath && $oldDisk && str_starts_with($oldPath, 'crew-photos/')) {
+            Storage::disk($oldDisk)->delete($oldPath);
+        }
 
         return response()->json([
             'success' => true,
