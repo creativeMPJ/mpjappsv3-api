@@ -166,8 +166,9 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/pending-status',               [InstitutionController::class, 'pendingStatus']);
     });
 
-    // Dokumen pendaftaran privat: authorization diperiksa terhadap entitas klaim.
+    // Dokumen privat: authorization diperiksa terhadap entitas terkait.
     Route::get('/documents/klaim/{claimId}', [DocumentController::class, 'dokumenKlaim']);
+    Route::get('/documents/pembayaran/{paymentId}', [DocumentController::class, 'buktiPembayaran']);
 
     // ── Hub resources ────────────────────────────────────────────────
     Route::prefix('hub')->group(function () {

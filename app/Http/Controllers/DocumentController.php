@@ -2,14 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Payment;
 use App\Models\PesantrenClaim;
 use App\Models\PesantrenProfile;
 use App\Support\AccessControl;
 use App\Support\BerkasDokumen;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class DocumentController extends Controller
 {
+    private const FINANCE_ACCESS_KEYS = [
+        'verifikasi',
+        'laporan-keuangan',
+        'clearing',
+        'regional-monitoring',
+        'finance',
+    ];
+
     public function dokumenKlaim(string $claimId)
     {
         $claim = PesantrenClaim::find($claimId);
@@ -32,6 +42,28 @@ class DocumentController extends Controller
         }
 
         return $this->alirkan($claim->dokumen_bukti_url);
+    }
+
+    public function buktiPembayaran(Request $request, string $paymentId)
+    {
+        $payment = Payment::find($paymentId);
+        $user = auth()->user();
+
+        if (!$payment || !$user) {
+            return $this->tidakDitemukan();
+        }
+
+        $profile = PesantrenProfile::where('user_id', $user->id)->first();
+        $role = $user->activeRole();
+        $canView = (bool) $role?->is_super_admin
+            || AccessControl::hasAny($user, self::FINANCE_ACCESS_KEYS)
+            || ($profile && $payment->user_id === $profile->id);
+
+        if (!$canView) {
+            return $this->tidakDitemukan();
+        }
+
+        return $this->alirkan($payment->proof_file_url);
     }
 
     private function alirkan(?string $url)
