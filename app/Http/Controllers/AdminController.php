@@ -2683,13 +2683,25 @@ class AdminController extends Controller
     {
         $this->assertPusatOrFinance();
 
+        $hasProof = fn($query) => $query
+            ->whereNotNull('proof_file_url')
+            ->where('proof_file_url', '!=', '');
+
+        $hasNoProof = fn($query) => $query
+            ->whereNull('proof_file_url')
+            ->orWhere('proof_file_url', '');
+
         return response()->json([
             'total_income'         => (int) Payment::where('status', 'verified')->sum('total_amount'),
             'pending_verification' => Payment::whereIn('status', [
-                FinanceActivationService::STATUS_PENDING,
-                FinanceActivationService::STATUS_WAITING_VERIFICATION,
+                FinanceActivationService::STATUS_PAID_UNVERIFIED,
                 FinanceActivationService::STATUS_LEGACY_WAITING_VERIFICATION,
-            ])->count(),
+                'pending_verification',
+            ])->where($hasProof)->count(),
+            'pending_payment'      => Payment::whereIn('status', [
+                FinanceActivationService::STATUS_PENDING,
+                'pending_payment',
+            ])->where($hasNoProof)->count(),
             'approved_today'       => Payment::where('status', 'verified')->whereDate('verified_at', today())->count(),
             // rejected_at, bukan updated_at: perubahan apa pun pada baris hari ini
             // sebelumnya ikut terhitung sebagai penolakan hari ini.

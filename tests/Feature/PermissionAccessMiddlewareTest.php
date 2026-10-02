@@ -68,6 +68,7 @@ class PermissionAccessMiddlewareTest extends TestCase
             $table->uuid('id')->primary();
             $table->string('status');
             $table->unsignedBigInteger('total_amount')->default(0);
+            $table->string('proof_file_url')->nullable();
             $table->timestamp('verified_at')->nullable();
             $table->timestamp('rejected_at')->nullable();
         });
@@ -177,6 +178,46 @@ class PermissionAccessMiddlewareTest extends TestCase
             ->assertJsonPath('pending_verification', 0)
             ->assertJsonPath('approved_today', 0)
             ->assertJsonPath('rejected_today', 0);
+    }
+
+    public function test_finance_stats_separates_unpaid_and_waiting_verification_without_double_counting(): void
+    {
+        $user = $this->userWithAccess('Admin Keuangan', [
+            'finance' => $this->access(view: true, create: false, update: false, delete: false),
+        ]);
+
+        $now = now();
+        $rows = [
+            ['status' => 'pending', 'total_amount' => 50000, 'proof_file_url' => null],
+            ['status' => 'pending_payment', 'total_amount' => 50000, 'proof_file_url' => ''],
+            ['status' => 'paid_unverified', 'total_amount' => 50000, 'proof_file_url' => '/uploads/payment-proofs/paid.jpg'],
+            ['status' => 'waiting_verification', 'total_amount' => 50000, 'proof_file_url' => '/uploads/payment-proofs/legacy.jpg'],
+            ['status' => 'pending_verification', 'total_amount' => 50000, 'proof_file_url' => '/uploads/payment-proofs/older.jpg'],
+            ['status' => 'verified', 'total_amount' => 100000, 'proof_file_url' => '/uploads/payment-proofs/verified-today.jpg', 'verified_at' => $now],
+            ['status' => 'verified', 'total_amount' => 200000, 'proof_file_url' => '/uploads/payment-proofs/verified-old.jpg', 'verified_at' => $now->copy()->subDay()],
+            ['status' => 'rejected', 'total_amount' => 50000, 'proof_file_url' => '/uploads/payment-proofs/rejected-today.jpg', 'rejected_at' => $now],
+            ['status' => 'rejected', 'total_amount' => 50000, 'proof_file_url' => '/uploads/payment-proofs/rejected-old.jpg', 'rejected_at' => $now->copy()->subDay()],
+            // Baris tidak konsisten ini tidak boleh masuk salah satu antrean:
+            // status pending tetapi bukti sudah ada, atau status paid tanpa bukti.
+            ['status' => 'pending', 'total_amount' => 50000, 'proof_file_url' => '/uploads/payment-proofs/inconsistent.jpg'],
+            ['status' => 'paid_unverified', 'total_amount' => 50000, 'proof_file_url' => null],
+        ];
+
+        foreach ($rows as $row) {
+            \DB::table('payments')->insert(array_merge([
+                'id' => (string) Str::uuid(),
+                'verified_at' => null,
+                'rejected_at' => null,
+            ], $row));
+        }
+
+        $this->actingAs($user, 'api')->getJson('/api/finance/stats')
+            ->assertOk()
+            ->assertJsonPath('total_income', 300000)
+            ->assertJsonPath('pending_payment', 2)
+            ->assertJsonPath('pending_verification', 3)
+            ->assertJsonPath('approved_today', 1)
+            ->assertJsonPath('rejected_today', 1);
     }
 
     public function test_finance_access_migration_updates_existing_role(): void
