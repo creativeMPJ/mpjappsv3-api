@@ -11,9 +11,9 @@ use App\Support\FinanceActivationService;
 use App\Support\PaymentContactResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use League\Flysystem\FilesystemException;
 use Throwable;
 
 class PaymentController extends Controller
@@ -307,11 +307,22 @@ class PaymentController extends Controller
         $file = $request->file('file');
         $filename = time() . '-' . Str::random(8) . '.' . $file->getClientOriginalExtension();
         $directory = "payment-proofs/{$user->id}";
-        $relativePath = "{$directory}/{$filename}";
 
         try {
-            $storedPath = $file->storeAs($directory, $filename, 'local');
-        } catch (FilesystemException) {
+            $disk = Storage::disk('local');
+            if (!$disk->exists($directory) && !$disk->makeDirectory($directory)) {
+                $storedPath = false;
+            } else {
+                $storedPath = $file->storeAs($directory, $filename, 'local');
+            }
+        } catch (Throwable $error) {
+            Log::warning('Payment proof storage failed.', [
+                'user_id' => $user->id,
+                'payment_id' => $request->paymentId,
+                'directory' => $directory,
+                'exception' => $error::class,
+                'message' => $error->getMessage(),
+            ]);
             $storedPath = false;
         }
 
@@ -351,7 +362,17 @@ class PaymentController extends Controller
             });
         } catch (Throwable $error) {
             Storage::disk('local')->delete($storedPath);
-            throw $error;
+
+            Log::error('Payment proof submit failed after file upload.', [
+                'user_id' => $user->id,
+                'payment_id' => $payment->id,
+                'exception' => $error::class,
+                'message' => $error->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Bukti transfer gagal diproses. Silakan coba lagi.',
+            ], 500);
         }
 
         $oldPath = BerkasDokumen::pathRelatif($oldProofUrl);
